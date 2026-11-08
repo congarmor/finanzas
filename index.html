@@ -50,6 +50,18 @@ details>summary::-webkit-details-marker{display:none}
 .sub div{display:flex;justify-content:space-between;padding:2px 0;color:var(--muted)}
 #ov{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:20}
 #ov.on{display:flex}
+#pk{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:40}
+#pk.on{display:flex}
+#pkbox{background:var(--bg);width:100%;max-width:560px;height:88vh;display:flex;flex-direction:column;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px);overflow:hidden}
+#pkl{overflow:auto;flex:1;background:var(--card);-webkit-overflow-scrolling:touch}
+.pkr{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--sep);cursor:pointer}
+.pkr:active{background:var(--bg)}.pkr.on{background:rgba(10,124,255,.12)}
+.pki{flex:none;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px}
+.pkt{flex:1;min-width:0;word-break:break-word}.pkt small{display:block;color:var(--muted);font-size:12px}
+.pkh{padding:6px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;background:var(--bg)}
+.pkbtn{flex:1;border:0;background:transparent;font:inherit;font-size:16px;color:var(--text);text-align:right;cursor:pointer;padding:0;min-width:0}
+.pkbtn.none{color:var(--muted)}
+@media (min-width:700px){#pk{align-items:center}#pkbox{border-radius:16px;height:80vh}}
 #sheet{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}
 .hd{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--head);position:sticky;top:0;border-bottom:1px solid var(--sep);gap:8px}
 .fld{background:var(--card);margin:10px 12px 0;border-radius:12px;overflow:hidden}
@@ -411,7 +423,7 @@ function selBar(){
 }
 function selCatOpen(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
-  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Cambiar categoría</strong><button class="btn primary" data-act="selcatapply">Aplicar</button></div><div class="fld"><div class="fr"><label>Categoría</label><select id="sc_cat">${catOptsHtml(null)}</select></div></div><div class="empty">Se aplicará a ${SEL.size} apuntes. Los que estaban divididos en varias categorías quedarán con una sola.</div>`;
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Cambiar categoría</strong><button class="btn primary" data-act="selcatapply">Aplicar</button></div><div class="fld"><div class="fr"><label>Categoría</label><button type="button" class="pkbtn none" id="sc_cat_b" data-pkopen="sc_cat">Elegir categoría ›</button><input type="hidden" id="sc_cat" value=""></div></div><div class="empty">Se aplicará a ${SEL.size} apuntes. Los que estaban divididos en varias categorías quedarán con una sola.</div>`;
   $('#ov').classList.add('on');
 }
 function selCatApply(){
@@ -658,7 +670,7 @@ function viewReports(){
   h += `<input id="rq" class="field" type="search" placeholder="Buscar texto (agua, gas, supermercado…)" value="${esc(R.q)}">`;
   h += `<div class="bar"><button id="racc" class="field" data-act="accpick" style="margin:0;flex:1;text-align:left">${accLbl} ▾</button><select id="rtipo" class="field" style="margin:0;flex:1"><option value="todos" ${R.tipo === 'todos' ? 'selected' : ''}>Todos</option><option value="gasto" ${R.tipo === 'gasto' ? 'selected' : ''}>Gastos</option><option value="ingreso" ${R.tipo === 'ingreso' ? 'selected' : ''}>Ingresos</option></select></div>`;
   h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button></div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
-  h += `<div class="bar" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="repsaved">Guardados (${(S.reports || []).length})</button><button class="btn" data-act="repsave">Guardar informe</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="xls">Exportar Excel</button></div>`;
+  h += `<div class="bar" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="repsaved">Guardados (${(S.reports || []).length})</button><button class="btn" data-act="repsave">Guardar informe</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="xls">Exportar Excel</button><button class="btn" data-act="csv">Exportar CSV</button></div>`;
   h += `</div>`;
   h += `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><div class="l">${R.q ? 'Total de «' + esc(R.q) + '»' : 'Resultado del periodo'} · ${esc(periodText())}</div><div class="v">${money(total)}</div><div class="l" style="margin-top:8px">Ingresos ${money(incTot)} · Gastos ${money(expTot)} · ${list.length} apuntes</div></div>`;
   if (R.view === 'fechas') {
@@ -704,11 +716,61 @@ function download(blob, name){
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
 }
 function xmlEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function crc32(u8){
+  if (!crc32.t) { crc32.t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crc32.t[n] = c >>> 0; } }
+  let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = crc32.t[(c ^ u8[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipStore(files){
+  const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+  const u16 = v => [v & 255, (v >> 8) & 255], u32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    const lh = new Uint8Array([0x50,0x4b,3,4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)]);
+    parts.push(lh, name, data);
+    cen.push(new Uint8Array([0x50,0x4b,1,2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), name);
+    off += lh.length + name.length + data.length;
+  });
+  const cenLen = cen.reduce((s, p) => s + p.length, 0);
+  const end = new Uint8Array([0x50,0x4b,5,6, 0,0, 0,0, ...u16(files.length), ...u16(files.length), ...u32(cenLen), ...u32(off), 0,0]);
+  return new Blob([...parts, ...cen, end], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function colName(i){ let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+function xmlClean(s){ return xmlEsc(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
 function exportXls(){
   const rows = reportTable();
-  const cell = v => typeof v === 'number' ? `<Cell><Data ss:Type="Number">${v}</Data></Cell>` : `<Cell><Data ss:Type="String">${xmlEsc(v)}</Data></Cell>`;
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Movimientos"><Table>${rows.map(r => `<Row>${r.map(cell).join('')}</Row>`).join('')}</Table></Worksheet></Workbook>`;
-  download(new Blob([xml], {type: 'application/vnd.ms-excel'}), 'movimientos-' + todayStr() + '.xls');
+  const maxC = rows.reduce((m, r) => Math.max(m, r.length), 1);
+  const widths = Array.from({length: maxC}, (_, i) => i === 1 && maxC >= 5 ? 60 : i === 0 ? 14 : 16);
+  const sheetRows = rows.map((r, ri) => {
+    const cells = r.map((v, ci) => {
+      const ref = colName(ci) + (ri + 1);
+      if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}" s="1"><v>${v}</v></c>`;
+      if (v == null || v === '') return '';
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlClean(v)}</t></is></c>`;
+    }).join('');
+    return `<row r="${ri + 1}">${cells}</row>`;
+  }).join('');
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', RNS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files = [
+    {name: '[Content_Types].xml', data: H + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name: '_rels/.rels', data: H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name: 'xl/workbook.xml', data: H + `<workbook xmlns="${NS}" xmlns:r="${RNS}"><sheets><sheet name="Movimientos" sheetId="1" r:id="rId1"/></sheets></workbook>`},
+    {name: 'xl/_rels/workbook.xml.rels', data: H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name: 'xl/styles.xml', data: H + `<styleSheet xmlns="${NS}"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`},
+    {name: 'xl/worksheets/sheet1.xml', data: H + `<worksheet xmlns="${NS}"><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${sheetRows}</sheetData></worksheet>`}
+  ];
+  download(zipStore(files), 'movimientos-' + todayStr() + '.xlsx');
+}
+function exportCsv(){
+  const rows = reportTable();
+  const q = v => {
+    if (typeof v === 'number') return String(v).replace('.', ',');
+    const s = String(v == null ? '' : v);
+    return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = '\uFEFF' + rows.map(r => r.map(q).join(';')).join('\r\n');
+  download(new Blob([csv], {type: 'text/csv;charset=utf-8'}), 'movimientos-' + todayStr() + '.csv');
 }
 
 function expandLines(list){
@@ -777,6 +839,50 @@ function viewSettings(){
 
 /* ---------- Formulario de movimiento ---------- */
 let FCAT = null, FACC = null, FSPL = null, FICON = null;
+
+/* ---------- Selector de categoría (buscador + recientes) ---------- */
+let PK = null;
+function catBtn(id, empty){ return id != null && catMap.has(id) ? esc(catLabel(id)) + ' ›' : esc(empty || 'Elegir categoría') + ' ›'; }
+function recentCats(){
+  const cnt = new Map();
+  S.transactions.slice().sort((a,b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id).slice(0, 300).forEach(t => {
+    if (t.type === 'transferencia') return;
+    (t.splits ? t.splits.map(s => s.category) : [t.category]).forEach(id => { if (id != null && catMap.has(id)) cnt.set(id, (cnt.get(id) || 0) + 1); });
+  });
+  return [...cnt.entries()].sort((a,b) => b[1] - a[1]).slice(0, 8).map(x => x[0]);
+}
+function pkRow(id, label, sub, sel, indent){
+  const ci = id != null ? catIconOf(id) : null;
+  return `<div class="pkr${id === sel ? ' on' : ''}" data-pk="${id == null ? '' : id}" style="padding-left:${14 + indent * 16}px"><span class="pki" style="${ci ? icStyle(id) : 'background:var(--bg)'}">${ci || '∅'}</span><span class="pkt">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${id === sel ? '<span style="color:var(--accent)">✓</span>' : ''}</div>`;
+}
+function pkList(q){
+  const sel = PK ? PK.sel : null;
+  const allow = PK && PK.o.allow;
+  const all = S.categories.filter(c => !allow || allow.has(c.id)).map(c => { const path = catLabel(c.id); return {id: c.id, name: c.name, path, depth: path.split(' › ').length - 1, n: nrm(path).replace(/[^a-z0-9]+/g, ' ')}; })
+    .sort((a,b) => a.path.localeCompare(b.path, 'es'));
+  const ws = nrm(q).split(/\s+/).map(w => w.replace(/[^a-z0-9]+/g, '')).filter(Boolean);
+  let h = PK && PK.o.none === false ? '' : pkRow(null, (PK && PK.o.none) || 'Sin categoría', '', sel, 0);
+  if (ws.length) {
+    let m = all.filter(c => ws.every(w => (' ' + c.n + ' ').includes(' ' + w)));
+    if (!m.length) m = all.filter(c => ws.every(w => c.n.includes(w)));
+    if (!m.length) return h + '<div class="empty">Ninguna categoría coincide</div>';
+    return h + m.map(c => { const p = c.path.split(' › '); return pkRow(c.id, c.name, p.length > 1 ? p.slice(0, -1).join(' › ') : '', sel, 0); }).join('');
+  }
+  const rec = allow ? [] : recentCats();
+  if (rec.length) h += '<div class="pkh">Recientes</div>' + rec.map(id => { const p = catLabel(id).split(' › '); return pkRow(id, p[p.length - 1], p.length > 1 ? p.slice(0, -1).join(' › ') : '', sel, 0); }).join('');
+  h += '<div class="pkh">Todas</div>' + all.map(c => pkRow(c.id, c.name, '', sel, c.depth)).join('');
+  return h;
+}
+function pkOpen(sel, cb, o){
+  PK = {sel, cb, o: o || {}};
+  let el = document.getElementById('pk');
+  if (!el) { el = document.createElement('div'); el.id = 'pk'; document.body.appendChild(el); }
+  el.innerHTML = `<div id="pkbox"><div class="hd"><button class="btn" data-pkx="1">Cancelar</button><strong>${esc((PK.o && PK.o.title) || 'Categoría')}</strong><span style="width:72px"></span></div><div style="padding:6px 0"><input id="pkq" class="field" type="search" placeholder="Buscar categoría…" autocomplete="off" autocapitalize="off" style="margin:0 12px;width:calc(100% - 24px);font-size:16px"></div><div id="pkl">${pkList('')}</div></div>`;
+  el.classList.add('on');
+  setTimeout(() => { const i = document.getElementById('pkq'); if (i) i.focus(); }, 60);
+}
+function pkClose(){ const el = document.getElementById('pk'); if (el) { el.classList.remove('on'); el.innerHTML = ''; } PK = null; }
+function pkPick(id){ const cb = PK && PK.cb; pkClose(); if (cb) cb(id); }
 function catOptsHtml(sel){
   const cats = [...S.categories].sort((a,b) => catLabel(a.id).localeCompare(catLabel(b.id),'es'));
   return `<option value="">Sin categoría</option>` + cats.map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(catLabel(c.id))}</option>`).join('');
@@ -804,7 +910,7 @@ function openForm(id){
       <div class="fr"><label>Fecha</label><input id="f_date" type="date" value="${orig ? orig.date : todayStr()}"></div>
       <div class="fr"><label id="lbl_acc">Cuenta</label><select id="f_acc">${accOpts(from)}</select></div>
       <div class="fr hide" id="row_to"><label>Hacia</label><select id="f_to">${accOpts(to)}</select></div>
-      <div class="fr" id="row_cat"><label>Categoría</label><select id="f_cat">${catOptsHtml(orig ? orig.category : null)}</select></div>
+      <div class="fr" id="row_cat"><label>Categoría</label><button type="button" class="pkbtn${orig && orig.category ? '' : ' none'}" id="f_cat_b" data-pkopen="f_cat">${catBtn(orig ? orig.category : null)}</button><input type="hidden" id="f_cat" value="${orig && orig.category != null ? orig.category : ''}"></div>
       <div class="fr" id="row_pay"><label>Beneficiario</label><input id="f_pay" list="paylist" value="${esc(orig ? orig.payee || '' : '')}" placeholder="Opcional"><datalist id="paylist">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
       <div class="fr"><label>Nota</label><textarea id="f_note" rows="3" placeholder="Opcional">${esc(orig ? orig.note || '' : '')}</textarea></div>
     </div>
@@ -838,7 +944,7 @@ function splitUI(){
   const abs = Math.abs(parseFloat($('#f_amt').value) || 0);
   const sum = FSPL.reduce((s,l) => s + Math.abs(l.amount || 0), 0);
   const ok = Math.abs(sum - abs) < 0.005;
-  box.innerHTML = `<div class="fld">` + FSPL.map((l,i) => `<div class="fr"><select data-sc="${i}" style="text-align:left;flex:1">${catOptsHtml(l.category)}</select><input data-sa="${i}" type="number" inputmode="decimal" step="0.01" min="0" value="${l.amount ? Math.abs(l.amount) : ''}" style="flex:none;width:96px"><button class="btn danger" data-sdel="${i}">✕</button></div>`).join('') +
+  box.innerHTML = `<div class="fld">` + FSPL.map((l,i) => `<div class="fr"><button type="button" class="pkbtn${l.category ? '' : ' none'}" style="text-align:left" data-pksplit="${i}">${catBtn(l.category)}</button><input data-sa="${i}" type="number" inputmode="decimal" step="0.01" min="0" value="${l.amount ? Math.abs(l.amount) : ''}" style="flex:none;width:96px"><button class="btn danger" data-sdel="${i}">✕</button></div>`).join('') +
     `<div class="fr" style="justify-content:space-between"><button class="btn" data-sadd="1">+ Añadir línea</button><span class="${ok ? '' : 'neg'}">${money(sum)} de ${money(abs)}</span></div>` +
     `<div class="fr" style="justify-content:center"><button class="btn" data-act="splitclose">Quitar la división</button></div></div>`;
 }
@@ -849,7 +955,7 @@ function splitOpen(){
   formUI();
 }
 function splitClose(){ FSPL = null; formUI(); }
-function closeForm(){ $('#ov').classList.remove('on'); $('#sheet').innerHTML = ''; FID = null; FCAT = null; FACC = null; FSPL = null; FICON = null; }
+function closeForm(){ pkClose(); $('#ov').classList.remove('on'); $('#sheet').innerHTML = ''; FID = null; FCAT = null; FACC = null; FSPL = null; FICON = null; }
 function removeOriginal(){
   if (FID == null) return;
   const orig = S.transactions.find(t => t.id === FID);
@@ -1007,7 +1113,7 @@ function openCatForm(id){
     <div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>${c ? 'Editar categoría' : 'Nueva categoría'}</strong><button class="btn primary" data-act="catsave">Guardar</button></div>
     <div class="fld">
       <div class="fr"><label>Nombre</label><input id="c_name" value="${esc(c ? c.name : '')}" style="text-align:left"></div>
-      <div class="fr"><label>Dentro de</label><select id="c_par" ${hasKids ? 'disabled' : ''}><option value="">Ninguna (principal)</option>${parents.map(p => `<option value="${p.id}" ${c && c.parent === p.id ? 'selected' : ''}>${esc(catPath(p.id))}</option>`).join('')}</select></div>
+      <div class="fr"><label>Dentro de</label><button type="button" class="pkbtn${c && c.parent != null && catMap.has(c.parent) ? '' : ' none'}" id="c_par_b" data-pkopen="c_par" data-pkempty="Ninguna (principal)" ${hasKids ? 'disabled' : ''}>${catBtn(c ? c.parent : null, 'Ninguna (principal)')}</button><input type="hidden" id="c_par" value="${c && c.parent != null ? c.parent : ''}" ${hasKids ? 'disabled' : ''}></div>
     </div>
     <div class="fld"><div class="fr" id="iconpick" style="flex-wrap:wrap;justify-content:flex-start;gap:6px">${iconPickHtml()}</div></div>
     <div class="empty">Elige un icono o deja «Auto» para que se elija según el nombre.</div>
@@ -1044,13 +1150,45 @@ function deleteCat(){
   S.categories = S.categories.filter(x => x.id !== c.id);
   reindex(); save(); closeForm(); render();
 }
+let CQ = '', CEXP = new Set();
 function viewCategories(){
+  if (!S.categories.length) return '<div class="empty">Sin categorías</div>';
+  return `<input id="cq" class="field" type="search" placeholder="Buscar categoría…" value="${esc(CQ)}" autocomplete="off" autocapitalize="off"><div class="bar" style="justify-content:space-between"><span class="t2" style="padding-left:14px">${S.categories.length} categorías</span><span><button class="btn" data-act="cexp">Expandir todo</button><button class="btn" data-act="ccol">Contraer todo</button></span></div><div id="clist">${catListHtml()}</div><div class="empty">Busca por nombre o despliega cada grupo con la flecha. Toca una categoría o «Editar» para cambiar su nombre, su icono o moverla dentro de otra.</div>`;
+}
+function catListHtml(){
   const byName = (a,b) => a.name.localeCompare(b.name,'es');
+  const kids = id => S.categories.filter(x => x.parent === id).sort(byName);
+  const cnt = new Map();
+  S.transactions.forEach(t => { const ids = new Set(t.splits ? t.splits.map(s => s.category) : []); if (t.category != null) ids.add(t.category); ids.forEach(id => { if (id != null) cnt.set(id, (cnt.get(id) || 0) + 1); }); });
+  const ws = nrm(CQ).split(/\s+/).map(w => w.replace(/[^a-z0-9]+/g, '')).filter(Boolean);
+  let show = null;
+  if (ws.length) {
+    const find = sub => {
+      const out = new Set();
+      const addDesc = c => { out.add(c.id); kids(c.id).forEach(addDesc); };
+      S.categories.forEach(c => {
+        const n = nrm(c.name).replace(/[^a-z0-9]+/g, ' ');
+        if (!ws.every(w => sub ? n.includes(w) : (' ' + n + ' ').includes(' ' + w))) return;
+        addDesc(c);
+        let p = c.parent != null ? catMap.get(c.parent) : null, g = 0;
+        while (p && g++ < 10) { out.add(p.id); p = p.parent != null ? catMap.get(p.parent) : null; }
+      });
+      return out;
+    };
+    show = find(false); if (!show.size) show = find(true);
+    if (!show.size) return '<div class="empty">Ninguna categoría coincide</div>';
+  }
+  const rowFor = (c, depth, nk, open) => {
+    const ic = catIconOf(c.id);
+    return `<div class="row" data-cat="${c.id}" style="padding-left:${14 + depth*26}px"><div class="ic${ic ? ' soft' : ''}" style="${ic ? icStyle(c.id) : 'background:' + colorOf(c.name)};width:${depth ? 28 : 34}px;height:${depth ? 28 : 34}px;font-size:${depth ? 17 : 20}px">${ic || esc((c.name||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(c.name)}</div><div class="t2">${cnt.get(c.id) || 0} movimientos</div></div>${nk ? `<button class="btn" data-ctog="${c.id}" style="min-width:56px">${open ? '▾' : '▸'} ${nk}</button>` : ''}<button class="btn" data-cat="${c.id}">Editar</button></div>`;
+  };
+  const walk = (c, depth) => {
+    if (show && !show.has(c.id)) return '';
+    const ks = kids(c.id), open = show ? true : CEXP.has(c.id);
+    return rowFor(c, depth, ks.length, open) + (open ? ks.map(k => walk(k, depth + 1)).join('') : '');
+  };
   const roots = S.categories.filter(isTop).sort(byName);
-  if (!roots.length) return '<div class="empty">Sin categorías</div>';
-  const rowFor = (c, depth) => `<div class="row" data-cat="${c.id}" style="padding-left:${14 + depth*26}px"><div class="ic${catIconOf(c.id) ? ' soft' : ''}" style="${catIconOf(c.id) ? icStyle(c.id) : 'background:' + colorOf(c.name)};width:${depth ? 28 : 34}px;height:${depth ? 28 : 34}px;font-size:${depth ? 17 : 20}px">${catIconOf(c.id) || esc((c.name||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(c.name)}</div><div class="t2">${countUse(c.id)} movimientos</div></div><button class="btn" data-cat="${c.id}">Editar</button></div>`;
-  const walk = (c, depth) => rowFor(c, depth) + S.categories.filter(x => x.parent === c.id).sort(byName).map(k => walk(k, depth + 1)).join('');
-  return roots.map(r => `<div class="card" style="margin:12px">${walk(r, 0)}</div>`).join('') + `<div class="empty">Toca una categoría o «Editar» para cambiar su nombre, su icono o moverla dentro de otra.</div>`;
+  return roots.map(r => { const w = walk(r, 0); return w ? `<div class="card" style="margin:12px">${w}</div>` : ''; }).join('');
 }
 
 /* ---------- Precios de inversiones ---------- */
@@ -1321,9 +1459,7 @@ function syncBlock(){
 /* ---------- Fusionar categorías ---------- */
 function catMergeBlock(c){
   if (S.categories.some(x => x.parent === c.id)) return '';
-  const opts = S.categories.filter(x => x.id !== c.id && !isDescOf(x.id, c.id)).sort((a, b) => catPath(a.id).localeCompare(catPath(b.id), 'es'))
-    .map(x => `<option value="${x.id}">${esc(catPath(x.id))}</option>`).join('');
-  return `<div class="fld"><div class="fr"><label>Fusionar en</label><select id="c_into" style="text-align:left">${opts}</select></div><div class="fr" style="justify-content:center"><button class="btn primary" data-act="catmerge">Fusionar en esa categoría</button></div></div><div class="empty">Sus movimientos pasan a la categoría elegida y esta desaparece.</div>`;
+  return `<div class="fld"><div class="fr"><label>Fusionar en</label><button type="button" class="pkbtn none" id="c_into_b" data-pkopen="c_into" style="text-align:left">Elegir categoría ›</button><input type="hidden" id="c_into" value=""></div><div class="fr" style="justify-content:center"><button class="btn primary" data-act="catmerge">Fusionar en esa categoría</button></div></div><div class="empty">Sus movimientos pasan a la categoría elegida y esta desaparece.</div>`;
 }
 function mergeCatTo(from, to){
   if (from == null || to == null || from === to) return false;
@@ -1396,7 +1532,9 @@ function act(a){
   else if (a === 'splitopen') splitOpen();
   else if (a === 'splitclose') splitClose();
   else if (a === 'settings') go('ajustes');
-  else if (a === 'catsettings') go('categorias');
+  else if (a === 'catsettings') { CQ = ''; go('categorias'); }
+  else if (a === 'cexp') { S.categories.forEach(c => { if (S.categories.some(x => x.parent === c.id)) CEXP.add(c.id); }); $('#clist').innerHTML = catListHtml(); }
+  else if (a === 'ccol') { CEXP.clear(); $('#clist').innerHTML = catListHtml(); }
   else if (a === 'selmode') { selMode = !selMode; if (!selMode) SEL.clear(); render(); }
   else if (a === 'selall') { VIS.forEach(id => SEL.add(id)); render(); }
   else if (a === 'selnone') { SEL.clear(); render(); }
@@ -1405,6 +1543,7 @@ function act(a){
   else if (a === 'seldel') selDelete();
   else if (a === 'pdf') window.print();
   else if (a === 'xls') exportXls();
+  else if (a === 'csv') exportCsv();
   else if (a === 'toreport') { R.q = f.q; R.mode = 'todo'; go('informes'); }
   else if (a === 'restorebak') restoreBackup();
   else if (a === 'accpick') repAccOpen();
@@ -1447,6 +1586,23 @@ function render(){
 
 document.addEventListener('click', e => {
   const t = e.target;
+  if (t.id === 'pk' || t.closest('[data-pkx]')) { pkClose(); return; }
+  const pkr = t.closest('[data-pk]'); if (pkr) { pkPick(pkr.dataset.pk === '' ? null : Number(pkr.dataset.pk)); return; }
+  const pko = t.closest('[data-pkopen]');
+  if (pko) {
+    const tid = pko.dataset.pkopen, inp = document.getElementById(tid), btn = document.getElementById(tid + '_b');
+    const empty = pko.dataset.pkempty || null;
+    let o = {};
+    if (tid === 'c_par' || tid === 'c_into') {
+      o.allow = new Set(S.categories.filter(x => FCAT == null || (x.id !== FCAT && !isDescOf(x.id, FCAT))).map(x => x.id));
+      o.title = tid === 'c_par' ? 'Dentro de' : 'Fusionar en';
+      o.none = tid === 'c_par' ? 'Ninguna (principal)' : false;
+    }
+    pkOpen(Number(inp.value) || null, id => { inp.value = id == null ? '' : id; btn.innerHTML = catBtn(id, empty); btn.classList.toggle('none', id == null); }, o);
+    return;
+  }
+  const pks = t.closest('[data-pksplit]');
+  if (pks && FSPL) { const i = Number(pks.dataset.pksplit); pkOpen(FSPL[i].category, id => { FSPL[i].category = id; splitUI(); }); return; }
   if (t.id === 'ov') { closeForm(); return; }
   const rp = t.closest('[data-repdel]'); if (rp) { deleteReport(Number(rp.dataset.repdel)); return; }
   const rq = t.closest('[data-rep]'); if (rq) { applyReport(Number(rq.dataset.rep)); return; }
@@ -1461,6 +1617,7 @@ document.addEventListener('click', e => {
   const sadd = t.closest('[data-sadd]'); if (sadd) { FSPL.push({category: null, amount: 0}); splitUI(); return; }
   const sdel = t.closest('[data-sdel]'); if (sdel) { FSPL.splice(Number(sdel.dataset.sdel), 1); if (!FSPL.length) FSPL = null; formUI(); return; }
   const ic = t.closest('[data-icon]'); if (ic) { FICON = ic.dataset.icon || null; $('#iconpick').innerHTML = iconPickHtml(); return; }
+  const ctg = t.closest('[data-ctog]'); if (ctg) { const id = Number(ctg.dataset.ctog); if (CEXP.has(id)) CEXP.delete(id); else CEXP.add(id); $('#clist').innerHTML = catListHtml(); return; }
   const ct = t.closest('[data-cat]'); if (ct) { openCatForm(Number(ct.dataset.cat)); return; }
   const ra = t.closest('[data-ra]'); if (ra) { toggleRepAcc(Number(ra.dataset.ra)); return; }
   const tx = t.closest('[data-tx]');
@@ -1468,6 +1625,8 @@ document.addEventListener('click', e => {
   if (tx) { openForm(Number(tx.dataset.tx)); return; }
 });
 document.addEventListener('input', e => {
+  if (e.target.id === 'cq') { CQ = e.target.value; const l = document.getElementById('clist'); if (l) l.innerHTML = catListHtml(); return; }
+  if (e.target.id === 'pkq') { const l = document.getElementById('pkl'); if (l) l.innerHTML = pkList(e.target.value); return; }
   if (e.target.id === 'q') { f.q = e.target.value; $('#list').innerHTML = moveList(); $('#qsum').innerHTML = f.q ? qSummary() : ''; }
 });
 document.addEventListener('change', e => {
