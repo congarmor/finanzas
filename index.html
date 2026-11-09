@@ -1203,32 +1203,48 @@ function catListHtml(){
 }
 
 /* ---------- Precios de inversiones ---------- */
+let priceSrc = 0;
 async function fetchPrice(sym){
-  const ctrl = new AbortController();
-  const tm = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?interval=1d&range=1d', {signal: ctrl.signal});
-    if (!r.ok) throw new Error('http ' + r.status);
-    const j = await r.json();
-    const m = j.chart.result[0].meta;
-    if (!(m.regularMarketPrice > 0)) throw new Error('sin precio');
-    return {price: m.regularMarketPrice, date: dayOf(new Date(m.regularMarketTime * 1000)), prev: m.chartPreviousClose || m.previousClose || null};
-  } finally { clearTimeout(tm); }
+  const path = '/v8/finance/chart/' + encodeURIComponent(sym) + '?interval=1d&range=1d';
+  const yh = 'https://query1.finance.yahoo.com' + path;
+  // Primero la consulta directa; si el navegador la bloquea, se prueban alternativas.
+  const urls = [
+    yh,
+    'https://query2.finance.yahoo.com' + path,
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(yh),
+    'https://corsproxy.io/?' + encodeURIComponent(yh)
+  ];
+  let last = null;
+  for (let i = 0; i < urls.length; i++) {
+    const k = (priceSrc + i) % urls.length;
+    const ctrl = new AbortController();
+    const tm = setTimeout(() => ctrl.abort(), 7000);
+    try {
+      const r = await fetch(urls[k], {signal: ctrl.signal});
+      if (!r.ok) throw new Error('http ' + r.status);
+      const j = await r.json();
+      const m = j.chart.result[0].meta;
+      if (!(m.regularMarketPrice > 0)) throw new Error('sin precio');
+      priceSrc = k;
+      return {price: m.regularMarketPrice, date: dayOf(new Date(m.regularMarketTime * 1000)), prev: m.chartPreviousClose || m.previousClose || null};
+    } catch (e) { last = e; }
+    finally { clearTimeout(tm); }
+  }
+  throw last || new Error('sin respuesta');
 }
 async function updatePrices(){
   const hs = S.holdings || [];
   if (!hs.length) return;
   pmsg = 'Actualizando precios…';
   render();
-  let ok = 0, fail = 0;
+  let ok = 0, fail = 0; const bad = [];
   for (const h of hs) {
     try { const p = await fetchPrice(h.symbol); h.price = p.price; h.priceDate = p.date; if (p.prev) h.prevClose = p.prev; ok++; }
-    catch (e) { fail++; }
+    catch (e) { fail++; bad.push(h.symbol || h.name || '?'); }
   }
   if (ok) save();
   pmsg = fail === 0 ? 'Precios actualizados desde la web.'
-       : ok ? 'Algunos precios se han actualizado desde la web.'
-       : 'No se han podido consultar los precios desde la web. Se usa el último guardado; toca un valor para cambiarlo.';
+       : (ok ? 'Algunos precios se han actualizado. ' : 'No se han podido consultar los precios desde la web. ') + 'Sin actualizar: ' + bad.join(', ') + '. Se usa el último precio guardado; toca el valor para cambiarlo a mano.';
   render();
 }
 function editPrice(id){
