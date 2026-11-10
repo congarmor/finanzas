@@ -792,6 +792,9 @@ async function buildVisualPdf(){
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;background:#fff;z-index:2147483000;';
   host.style.cssText = 'position:absolute;left:0;top:0;width:800px;background:#fff;color:#000;';
+  // El PDF siempre en claro, aunque el iPhone/Mac esté en modo oscuro
+  [['--bg','#f2f2f7'],['--card','#ffffff'],['--text','#1c1c1e'],['--muted','#6e6e73'],['--sep','#d8d8de'],['--accent','#0a7cff'],['--neg','#d70015'],['--pos','#248a3d'],['--nav','#ffffff'],['--head','#ffffff']].forEach(([k, v]) => host.style.setProperty(k, v));
+  host.style.setProperty('color-scheme', 'light');
   wrap.appendChild(host);
   host.innerHTML = viewReports();
   host.querySelectorAll('.noprint').forEach(el => el.remove());
