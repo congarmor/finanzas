@@ -827,6 +827,13 @@ async function buildVisualPdf(){
     }
     el.style.background = bg;
   });
+  // Fijar los colores calculados (ya en claro) como valores propios, para que el generador de PDF no dependa de variables
+  [host, ...host.querySelectorAll('*')].forEach(el => {
+    const cs = getComputedStyle(el);
+    el.style.color = cs.color;
+    if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') el.style.backgroundColor = cs.backgroundColor;
+    if (parseFloat(cs.borderTopWidth) > 0) el.style.borderColor = cs.borderTopColor;
+  });
   try {
     const hostW = host.offsetWidth, hostH = host.scrollHeight;
     const canvas = await window.html2canvas(host, {scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, width: hostW, height: hostH, windowWidth: hostW, windowHeight: hostH});
