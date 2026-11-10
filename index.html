@@ -827,12 +827,22 @@ async function buildVisualPdf(){
     }
     el.style.background = bg;
   });
-  // Fijar los colores calculados (ya en claro) como valores propios, para que el generador de PDF no dependa de variables
+  // Colores fijos para el PDF: fondos oscuros pasan a blanco, texto claro pasa a oscuro,
+  // y los importes en rojo/verde mantienen su color. No depende de las variables del modo oscuro.
+  const rgbOf = c => { const m = String(c).match(/[\d.]+/g); return m && m.length >= 3 ? m.slice(0, 3).map(Number) : null; };
+  const lum = c => { const v = rgbOf(c); return v ? 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2] : 255; };
   [host, ...host.querySelectorAll('*')].forEach(el => {
     const cs = getComputedStyle(el);
-    el.style.color = cs.color;
-    if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') el.style.backgroundColor = cs.backgroundColor;
-    if (parseFloat(cs.borderTopWidth) > 0) el.style.borderColor = cs.borderTopColor;
+    if (el.classList.contains('neg')) el.style.color = '#d70015';
+    else if (el.classList.contains('pos')) el.style.color = '#248a3d';
+    else if (el.matches('.sec, .empty, .t2, .rd, .rs, .mx th, .printonly p')) el.style.color = '#6e6e73';
+    else if (lum(cs.color) > 140) el.style.color = '#1c1c1e';
+    if (!el.classList.contains('ri') && cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+      el.style.backgroundColor = lum(cs.backgroundColor) < 200 ? '#ffffff' : cs.backgroundColor;
+    }
+    if (parseFloat(cs.borderTopWidth) > 0) {
+      el.style.borderColor = lum(cs.borderTopColor) > 200 ? '#d8d8de' : cs.borderTopColor;
+    }
   });
   try {
     const hostW = host.offsetWidth, hostH = host.scrollHeight;
