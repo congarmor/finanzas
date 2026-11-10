@@ -33,7 +33,7 @@ nav.tabs button.on{color:var(--accent);font-weight:700;border-top-color:var(--ac
 .ic{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;flex:none;font-size:15px}
 .mid{flex:1;min-width:0}
 .t1{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.t2{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.price-date{font-size:12px;color:var(--muted);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3;margin-top:2px}
 .amt{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .amt small{display:block;font-size:12px;color:var(--muted)}
 .neg{color:var(--neg)}
@@ -44,6 +44,7 @@ nav.tabs button.on{color:var(--accent);font-weight:700;border-top-color:var(--ac
 .bar{display:flex;align-items:center;gap:8px;padding:6px 12px}
 .month{display:flex;align-items:center;justify-content:center;font-weight:600;flex:1;text-transform:capitalize}
 .field{width:100%;margin:6px 12px;padding:9px 12px;border-radius:10px;border:0;background:var(--card);color:var(--text);font:inherit;outline:none}
+.search-wrap{display:flex;align-items:center;gap:4px;margin:6px 12px;background:var(--card);border-radius:10px;padding-right:5px}.search-wrap .field{flex:1;min-width:0;width:100%;margin:0}.search-clear{border:0;background:transparent;color:var(--muted);font-size:23px;line-height:1;padding:5px 9px;cursor:pointer;border-radius:50%;flex:none}.search-clear:active{background:var(--bg)}
 .day{display:flex;justify-content:space-between;padding:14px 16px 6px;font-size:13px;color:var(--muted);text-transform:none}
 .banner{margin:10px 12px;padding:10px 12px;border-radius:10px;background:#ffd60a44;font-size:14px}
 .empty{padding:24px 18px;text-align:center;color:var(--muted);font-size:14px}
@@ -358,13 +359,13 @@ function holdingText(x){
     const d = x.price - x.prevClose, p = d / x.prevClose * 100;
     line2 = `<span class="${trend(d)}">${d > 0 ? '▲' : d < 0 ? '▼' : '■'} ${fmtSigned(d,2)} € (${fmtSigned(p,2)} %) hoy</span>`;
   }
-  line2 += (line2 ? ' · ' : '') + (x.priceDate ? fmtDate(x.priceDate) : 'precio manual');
+  const priceDate = x.priceDate ? fmtDate(x.priceDate) : 'Precio manual';
   let amt = money(val);
   if (x.cost) {
     const g = val - x.cost, gp = g / x.cost * 100;
     amt += `<small class="${trend(g)}">${g > 0 ? '▲' : g < 0 ? '▼' : ''} ${fmtSigned(g,2)} € (${fmtSigned(gp,1)} %) vs compra</small>`;
   }
-  return {mid, line2, amt};
+  return {mid, line2, priceDate, amt};
 }
 function holdingsOf(accId){ return (S.holdings || []).filter(h => h.account === accId); }
 function holdingValue(h){ return h.shares * h.price; }
@@ -405,7 +406,7 @@ function viewAccounts(){
       const mv = reorder ? `<div style="display:flex;flex-direction:column"><button class="btn" data-move="-1" data-acc="${a.id}">▲</button><button class="btn" data-move="1" data-acc="${a.id}">▼</button></div>` : '';
       let r = `<div class="row" ${reorder ? `draggable="true" data-drag="${a.id}" style="cursor:grab"` : `data-go="movimientos" data-acc="${a.id}"`}>${bankLogo(a) || `<div class="ic" style="background:${colorOf(a.name)}">${esc((a.name||'?')[0].toUpperCase())}</div>`}<div class="mid"><div class="t1">${esc(a.name)}</div><div class="t2">${esc(ACC_LABEL[a.type] || '')}${tags ? ' · ' + tags : ''}</div><div class="t2">Saldo inicial: ${money(Number(a.opening) || 0)}</div></div><div style="text-align:right;min-width:100px"><div class="amt ${sign(v)}">${money(v)}</div><div class="t2">Saldo actual</div></div>${mv}</div>`;
       if (a.type === 'inversion') {
-        r += holdingsOf(a.id).map(x => { const ht = holdingText(x); return `<div class="row" data-hprice="${x.id}" style="padding:8px 14px 8px 60px;min-height:0;background:var(--bg)"><div class="mid"><div class="t2">${ht.mid}</div><div class="t2">${ht.line2}</div></div><div class="amt">${ht.amt}</div></div>`; }).join('');
+        r += holdingsOf(a.id).map(x => { const ht = holdingText(x); return `<div class="row" data-hprice="${x.id}" style="padding:8px 14px 8px 60px;min-height:0;background:var(--bg)"><div class="mid"><div class="t2">${ht.mid}</div><div class="t2">${ht.line2}</div><div class="price-date">Actualizado: ${ht.priceDate}</div></div><div class="amt">${ht.amt}</div></div>`; }).join('');
       }
       return r;
     }).join('');
@@ -452,7 +453,7 @@ function viewMoves(){
   const opts = ordered().map(a => `<option value="${a.id}" ${a.id === f.account ? 'selected' : ''}>${esc(a.name)}${a.archived ? ' (archivada)' : ''}</option>`).join('');
   h += `<select id="accsel" class="field">` + `<option value="">Todas las cuentas</option>` + opts + `</select>`;
   if (isMintosAcc(f.account)) h += `<div style="padding:8px 12px"><button class="btn primary" style="width:100%" data-act="mintos-panel">${mintosPanelOpen ? 'Ocultar panel Mintos' : '🪙 Abrir panel Mintos'}</button></div>${mintosPanelOpen ? mintosView() : ''}`;
-  h += `<input id="q" class="field" type="search" placeholder="Buscar en todo el histórico (agua, gas…)" value="${esc(f.q)}">`;
+  h += `<div class="search-wrap"><input id="q" class="field" type="search" placeholder="Buscar en todo el histórico (agua, gas…)" value="${esc(f.q)}"><button type="button" class="search-clear ${f.q ? '' : 'hide'}" id="qclear" aria-label="Borrar búsqueda" title="Borrar búsqueda">×</button></div>`;
   h += `<div id="qsum">${f.q ? qSummary() : ''}</div>`;
   if (selMode) h += selBar();
   h += `<div id="list">${listHtml}</div>`;
@@ -1580,7 +1581,7 @@ const MINTOS_FIELDS = [
 function isMintosAcc(id){ const a = accMap && accMap.get(id); return !!(a && /mintos/i.test(a.name || '')); }
 function mintosSnapshots(){
   if (!Array.isArray(S.mintosSnapshots)) {
-    S.mintosSnapshots = [];
+    S.mintosSnapshots = [{date:'2026-11-09',accountValue:485.23,available:0.09,loans:485.13,profitability:189.53,cash:2.51,investments:339.38,pending:9.63,late:133.60}];
   }
   return S.mintosSnapshots;
 }
@@ -1664,6 +1665,7 @@ document.addEventListener('click', e => {
   const pks = t.closest('[data-pksplit]');
   if (pks && FSPL) { const i = Number(pks.dataset.pksplit); pkOpen(FSPL[i].category, id => { FSPL[i].category = id; splitUI(); }); return; }
   if (t.id === 'ov') { closeForm(); return; }
+  if (t.closest('#qclear')) { const q = document.getElementById('q'); if (q) { q.value = ''; f.q = ''; document.getElementById('qclear')?.classList.add('hide'); $('#list').innerHTML = moveList(); $('#qsum').innerHTML = ''; q.focus(); } return; }
   const rp = t.closest('[data-repdel]'); if (rp) { deleteReport(Number(rp.dataset.repdel)); return; }
   const rq = t.closest('[data-rep]'); if (rq) { applyReport(Number(rq.dataset.rep)); return; }
   const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); return; }
@@ -1687,7 +1689,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   if (e.target.id === 'cq') { CQ = e.target.value; const l = document.getElementById('clist'); if (l) l.innerHTML = catListHtml(); return; }
   if (e.target.id === 'pkq') { const l = document.getElementById('pkl'); if (l) l.innerHTML = pkList(e.target.value); return; }
-  if (e.target.id === 'q') { f.q = e.target.value; $('#list').innerHTML = moveList(); $('#qsum').innerHTML = f.q ? qSummary() : ''; }
+  if (e.target.id === 'q') { f.q = e.target.value; const clear = document.getElementById('qclear'); if (clear) clear.classList.toggle('hide', !f.q); $('#list').innerHTML = moveList(); $('#qsum').innerHTML = f.q ? qSummary() : ''; }
 });
 document.addEventListener('change', e => {
   const el = e.target;
