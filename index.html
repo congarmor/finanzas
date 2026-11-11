@@ -332,7 +332,7 @@ function refundCat(t){
 }
 function exLabel(ex){ const cl = ex.splits ? 'varias categorías' : catLabel(ex.category); return `${fmtDate(ex.date)} · ${ex.desc || ex.payee || cl} · ${money(Math.abs(ex.amount))}`; }
 function refOptions(){
-  return S.transactions.filter(t => t.type === 'gasto').sort((a,b) => byAsc(b,a)).map(t => `<option value="${esc(exLabel(t) + ' (' + t.id + ')')}">`).join('');
+  return '<option value="">Elegir de la lista…</option>' + S.transactions.filter(t => t.type === 'gasto').sort((a,b) => byAsc(b,a)).map(t => `<option value="${esc(exLabel(t) + ' (' + t.id + ')')}">${esc(exLabel(t))}</option>`).join('');
 }
 function refResultsHtml(raw){
   const words = nrm(raw).split(/\s+/).filter(Boolean);
@@ -341,7 +341,7 @@ function refResultsHtml(raw){
     .filter(t => t.type === 'gasto' && words.every(w => nrm(exLabel(t) + ' ' + catText(t) + ' ' + (t.note || '')).includes(w)))
     .sort((a, b) => byAsc(b, a)).slice(0, 25);
   if (!hits.length) return `<div class="empty">Ningún gasto coincide con «${esc(raw)}».</div>`;
-  return `<div class="card" style="margin:0">` + hits.map(t => `<div class="row" data-refpick="${esc(exLabel(t) + ' (' + t.id + ')')}" style="min-height:44px"><div class="mid"><div class="t1">${esc(exLabel(t))}</div><div class="t2">${esc(catText(t))}</div></div></div>`).join('') + `</div>`;
+  return `<div class="card" style="margin:0">` + hits.map(t => `<div class="row" data-refpick="${esc(exLabel(t) + ' (' + t.id + ')')}" style="min-height:44px"><div class="mid"><div class="t1">${esc(describe(t))}</div><div class="t2">${esc(fmtDate(t.date))} · ${esc(catText(t))}</div></div><div class="amt neg" style="white-space:nowrap">${money(t.amount)}</div></div>`).join('') + `</div>`;
 }
 function refIdFromLabel(raw){ const m = String(raw || '').match(/\((\d+)\)\s*$/); return m ? Number(m[1]) : null; }
 function isFuture(t){ return t.date > todayStr(); }
@@ -831,7 +831,26 @@ function pdfDoc(){
     }
     return new Blob([out], {type: 'application/pdf'});
   };
-  return {PW, PH, LM, RM, rect, rule, text, img, need, newPage, addImage, finish, get top(){ return top; }, set top(v){ top = v; }, ops: () => ops};
+  const wrap = (str, size, bold, maxW, maxLines) => {
+    const cw = size * (bold ? 0.56 : 0.5);
+    const per = Math.max(8, Math.floor(maxW / cw));
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    const lines = []; let cur = '';
+    for (const w of words) {
+      const cand = cur ? cur + ' ' + w : w;
+      if (cand.length <= per) cur = cand;
+      else { if (cur) lines.push(cur); cur = w.length > per ? w.slice(0, per) : w; }
+    }
+    if (cur) lines.push(cur);
+    if (!lines.length) lines.push('');
+    if (lines.length > maxLines) {
+      const keep = lines.slice(0, maxLines);
+      keep[maxLines - 1] = keep[maxLines - 1].slice(0, Math.max(1, per - 1)) + '…';
+      return keep;
+    }
+    return lines;
+  };
+  return {PW, PH, LM, RM, wrap, rect, rule, text, img, need, newPage, addImage, finish, get top(){ return top; }, set top(v){ top = v; }, ops: () => ops};
 }
 async function buildCardPdf(){
   const d = pdfDoc();
@@ -852,10 +871,15 @@ async function buildCardPdf(){
     d.text(LM, d.top, 9, false, title, PDF_PAL.muted);
     d.text(RM, d.top, 9, false, money(tot), tot < 0 ? PDF_PAL.neg : PDF_PAL.pos, 'right');
     d.top += 16;
+    const descW = RM - 95 - (LM + 78);
     for (const t of arr) {
       const acc = accMap.get(t.account);
       const subs = t.splits && t.splits.length ? t.splits : null;
-      const h = subs ? 34 + subs.length * 11 : 34;
+      const dl = d.wrap(describe(t), 9, true, descW, 2);
+      const sl = d.wrap([acc ? acc.name : '', catText(t), noteOf(t)].filter(Boolean).join(' · '), 7, false, descW, 1);
+      const sp = subs ? subs.map(x => d.wrap(catPath(x.category) || 'Sin categoría', 7, false, descW, 1)[0]) : [];
+      const textH = dl.length * 11 + 2 + sl.length * 9;
+      const h = 10 + Math.max(textH, 18) + (subs ? 6 + subs.length * 10 : 0) + 6;
       d.need(h);
       const y0 = d.top;
       d.text(LM + 6, y0 + 9, 8, false, fmtDate(t.date), PDF_PAL.muted);
@@ -865,13 +889,16 @@ async function buildCardPdf(){
         const j = await iconJpeg(ic, bg);
         if (j) d.img(LM + 52, y0 + 6, 18, 18, d.addImage(ic + '|' + bg, j));
       }
-      d.text(LM + 78, y0 + 7, 9, true, describe(t), PDF_PAL.ink);
-      d.text(LM + 78, y0 + 20, 7, false, [acc ? acc.name : '', catText(t), noteOf(t)].filter(Boolean).join(' · '), PDF_PAL.muted);
+      dl.forEach((l, i) => d.text(LM + 78, y0 + 7 + i * 11, 9, true, l, PDF_PAL.ink));
+      sl.forEach((l, i) => d.text(LM + 78, y0 + 7 + dl.length * 11 + 2 + i * 9, 7, false, l, PDF_PAL.muted));
       d.text(RM - 6, y0 + 7, 9, true, money(t.amount), t.amount < 0 ? PDF_PAL.neg : PDF_PAL.pos, 'right');
-      if (subs) subs.forEach((s, i) => {
-        d.text(LM + 78, y0 + 33 + i * 11, 7, false, catPath(s.category) || 'Sin categoría', PDF_PAL.muted);
-        d.text(RM - 6, y0 + 33 + i * 11, 7, false, money(s.amount), s.amount < 0 ? PDF_PAL.neg : PDF_PAL.pos, 'right');
-      });
+      if (subs) {
+        const base = y0 + 10 + Math.max(textH, 18) + 2;
+        subs.forEach((x, i) => {
+          d.text(LM + 78, base + i * 10, 7, false, sp[i], PDF_PAL.muted);
+          d.text(RM - 6, base + i * 10, 7, false, money(x.amount), x.amount < 0 ? PDF_PAL.neg : PDF_PAL.pos, 'right');
+        });
+      }
       d.rule(y0 + h, LM, RM, PDF_PAL.rule);
       d.top = y0 + h;
     }
@@ -1146,7 +1173,7 @@ function openForm(id, duplicate = false){
       <div class="fr" id="row_pay"><label>Beneficiario</label><input id="f_pay" list="paylist" value="${esc(orig ? orig.payee || '' : '')}" placeholder="Opcional"><datalist id="paylist">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
       <div class="fr"><label>Nota</label><textarea id="f_note" rows="3" placeholder="Opcional">${esc(orig ? orig.note || '' : '')}</textarea></div>
     </div>
-    <div class="fld hide" id="row_ref_box"><div class="fr"><label>Reembolso de</label><input id="f_ref" list="reflist" value="${esc(orig && !duplicate && orig.refundOf != null && txMap.has(orig.refundOf) ? exLabel(txMap.get(orig.refundOf)) + ' (' + orig.refundOf + ')' : '')}" placeholder="Busca el gasto" style="text-align:left"></div><div class="fr" style="display:block"><input id="f_refq" class="field" type="search" placeholder="Escribe para buscar: temu, agua, gas…" autocomplete="off" autocapitalize="off" style="margin:0 0 6px;width:100%"><div id="refres">${refResultsHtml('')}</div></div></div>
+    <div class="fld hide" id="row_ref_box"><div class="fr"><label>Reembolso de</label><input id="f_ref" list="reflist" value="${esc(orig && !duplicate && orig.refundOf != null && txMap.has(orig.refundOf) ? exLabel(txMap.get(orig.refundOf)) + ' (' + orig.refundOf + ')' : '')}" placeholder="Busca el gasto" style="text-align:left"></div><div class="fr" style="display:block"><select id="f_refsel" class="field" style="margin:0 0 6px;width:100%">${refOptions()}</select><input id="f_refq" class="field" type="search" placeholder="Escribe para buscar: temu, agua, gas…" autocomplete="off" autocapitalize="off" style="margin:0 0 6px;width:100%"><div id="refres">${refResultsHtml('')}</div></div></div>
     ${orig && !duplicate && orig.type === 'gasto' && refundsOf(orig.id).length ? `<div class="empty">Reembolsos: ${refundsOf(orig.id).map(r => fmtDate(r.date) + ' ' + money(r.amount)).join(' · ')}. Neto ${money(orig.amount + refundsOf(orig.id).reduce((s,r) => s + r.amount, 0))}</div>` : ''}
     <div id="splitbox"></div>
     ${orig && !duplicate ? `<div class="fld"><div class="fr" style="justify-content:center"><button class="btn danger" data-act="del">Eliminar movimiento</button></div></div>` : ''}
@@ -1631,14 +1658,30 @@ function toggleRepCat(id){
   }
   catRefresh();
 }
+function reportState(name){
+  return {name, mode: R.mode, from: R.from, to: R.to, month: f.month, q: R.q, tipo: R.tipo, view: R.view, excl: [...R.excl], cats: [...R.cats]};
+}
 function saveReportAs(){
-  const name = prompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '');
+  let name = prompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '');
+  while (name && name.trim()) {
+    name = name.trim();
+    const dup = (S.reports || []).find(r => nrm(r.name) === nrm(name));
+    if (!dup) break;
+    if (confirm(`Ya existe un informe llamado «${dup.name}».\n\nAceptar: reemplazarlo.\nCancelar: darle otro nombre.`)) {
+      Object.assign(dup, reportState(name));
+      touch('rep', dup.id); save(); render();
+      alert('Informe reemplazado: ' + name);
+      return;
+    }
+    name = prompt('Elige otro nombre para el informe', name);
+  }
   if (!name || !name.trim()) return;
-  const id = Date.now();
+  name = name.trim();
   S.reports = S.reports || [];
-  S.reports.push({id, name: name.trim(), mode: R.mode, from: R.from, to: R.to, month: f.month, q: R.q, tipo: R.tipo, view: R.view, excl: [...R.excl], cats: [...R.cats]});
+  const id = Date.now();
+  S.reports.push({id, ...reportState(name)});
   touch('rep', id); save(); render();
-  alert('Informe guardado: ' + name.trim());
+  alert('Informe guardado: ' + name);
 }
 function applyReport(id){
   const r = (S.reports || []).find(x => x.id === id); if (!r) return;
@@ -1652,10 +1695,19 @@ function deleteReport(id){
   S.reports = (S.reports || []).filter(r => r.id !== id); gone('rep', id);
   save(); openSavedReports(); render();
 }
+const REPORT_SORTS = [['reciente','Más reciente primero'],['antiguo','Más antiguo primero'],['nombre','Nombre (A-Z)']];
+const REPORT_CMP = {
+  reciente: (a, b) => b.id - a.id,
+  antiguo: (a, b) => a.id - b.id,
+  nombre: (a, b) => a.name.localeCompare(b.name, 'es', {sensitivity: 'base'})
+};
+function sortSelectHtml(){
+  return `<div class="bar" style="justify-content:flex-end"><select id="rsort" class="field" style="margin:0;flex:0 1 auto">${REPORT_SORTS.map(([k, l]) => `<option value="${k}" ${(S.reportSort || 'reciente') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
+}
 function openSavedReports(){
   const MODE = {mes:'Mes elegido', 'mes-pasado':'Mes pasado', trimestre:'Últimos 3 meses', anio:'Este año', 'anio-pasado':'Año pasado', todo:'Todo el histórico', rango:'Entre fechas'};
-  const list = S.reports || [];
-  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cerrar</button><strong>Informes guardados</strong><span></span></div>` +
+  const list = [...(S.reports || [])].sort(REPORT_CMP[S.reportSort || 'reciente'] || REPORT_CMP.reciente);
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cerrar</button><strong>Informes guardados</strong><span></span></div>` + (list.length ? sortSelectHtml() : '') +
     (list.length ? `<div class="card" style="margin:12px">` + list.map(r => `<div class="row" data-rep="${r.id}"><div class="mid"><div class="t1">${esc(r.name)}</div><div class="t2">${esc(MODE[r.mode] || r.mode)}${r.cats && r.cats.length ? ' · ' + r.cats.length + ' categorías' : ''}${r.excl && r.excl.length ? ' · ' + (S.accounts.length - r.excl.length) + ' cuentas' : ''}</div></div><button class="btn danger" data-repdel="${r.id}">Borrar</button></div>`).join('') + `</div>`
       : `<div class="empty">Aún no hay informes guardados. Ajusta un informe y pulsa «Guardar informe».</div>`);
   $('#ov').classList.add('on');
@@ -1969,6 +2021,8 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const el = e.target;
+  if (el.id === 'rsort') { S.reportSort = el.value; save(); openSavedReports(); return; }
+  if (el.id === 'f_refsel') { const inp = document.getElementById('f_ref'); if (inp && el.value) inp.value = el.value; return; }
   if (el.id === 'accsel') { f.account = el.value ? Number(el.value) : null; render(); return; }
   if (el.id === 'rsel') { R.mode = el.value; if (R.mode === 'rango') { const r = pgRange(); R.from = r[0]; R.to = r[1]; } render(); return; }
   if (el.id === 'rfrom' || el.id === 'rto') { R[el.id === 'rfrom' ? 'from' : 'to'] = el.value; render(); return; }
