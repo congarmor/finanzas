@@ -20,6 +20,8 @@ header.top h1{font-size:20px;margin:0;flex:1;white-space:nowrap;overflow:hidden;
 .btn{background:none;border:0;color:var(--accent);font:inherit;padding:8px;cursor:pointer;border-radius:8px}
 .btn.primary{background:var(--accent);color:#fff;border-radius:20px;padding:6px 14px;font-weight:600}
 .btn.danger{color:var(--neg)}
+.calw{position:relative;display:inline-flex;flex:none}.calw input{position:absolute;left:0;bottom:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0}
+.btn.xclr{color:var(--neg);padding:6px 9px;font-weight:700;flex:none}.btn.xclr:disabled{opacity:.25;cursor:default}
 main{max-width:720px;margin:0 auto}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--nav);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--sep);display:flex;padding-bottom:env(safe-area-inset-bottom,0px);z-index:6}
 nav.tabs button{flex:1;background:none;border:0;color:var(--muted);font:inherit;font-size:13px;padding:12px 0 10px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;border-top:3px solid transparent;margin-top:-1px}
@@ -154,7 +156,7 @@ details>summary::-webkit-details-marker{display:none}
 <script>
 const SEED = null;
 
-const KEY = 'mw-control-vacio-v1';
+const KEY = 'mw-control-v1';
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', useGrouping:true});
 const money = v => { const r = Math.round(v*100)/100; return eur.format(r === 0 ? 0 : r); };
 const $ = s => document.querySelector(s);
@@ -283,6 +285,8 @@ function loadState(){
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const o = JSON.parse(raw);
+      const vacio = o && Array.isArray(o.transactions) && !o.transactions.length && Array.isArray(o.accounts) && !o.accounts.length && SEED && valid(SEED) && (SEED.transactions || []).length;
+      if (vacio) return JSON.parse(JSON.stringify(SEED));
       if (valid(o)) {
         if ((o.dataVersion || 0) >= DATA_VERSION) return o;
         try { localStorage.setItem(KEY + '-antes-fusion', raw); } catch(e) {}
@@ -570,6 +574,7 @@ function parseTypedDate(s){
   let m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
   let out = null;
   if (m) { let y = +m[3]; if (y < 100) y += 2000; out = y + '-' + pad(+m[2]) + '-' + pad(+m[1]); }
+  else if ((m = s.match(/^(\d{2})(\d{2})(\d{4})$/))) out = m[3] + '-' + m[2] + '-' + m[1];
   else if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) out = m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]);
   return out && !isNaN(new Date(out + 'T00:00:00')) ? out : null;
 }
@@ -710,6 +715,8 @@ function monthsOf(lines){
   const set = [...new Set(lines.map(l => monthKey(l.date)))].sort();
   return set.slice(-24);
 }
+function calBtn(id, val){ return `<span class="calw"><button type="button" class="btn" data-calfor="${id}" title="Elegir en el calendario" aria-label="Calendario">📅</button><input id="${id}" type="date" value="${val || ''}" tabindex="-1"></span>`; }
+function xb(act, on){ return `<button class="btn xclr" data-act="${act}" title="Borrar" aria-label="Borrar" ${on ? '' : 'disabled'}>✕</button>`; }
 function viewReports(){
   const list = reportRows();
   const inc = incomeList(list), exp = expenseList(list);
@@ -723,18 +730,16 @@ function viewReports(){
   const [from, to] = pgRange();
   let h = `<div class="printonly"><h2 style="margin:8px 12px">${esc(reportTitle())}</h2><p style="margin:0 12px">${esc(periodText())}${R.q ? ' · Texto: ' + esc(R.q) : ''}</p></div>`;
   h += `<div class="noprint">`;
-  h += `<div class="bar"><select id="rsel" class="field" style="margin:0;flex:1">${modes.map(([k,l]) => `<option value="${k}" ${R.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
+  h += `<div class="bar"><select id="rsel" class="field" style="margin:0;flex:1">${modes.map(([k,l]) => `<option value="${k}" ${R.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${xb('rclr-mode', R.mode !== 'mes')}</div>`;
   if (R.mode === 'mes') h += `<div class="bar"><button class="btn" data-mo="-1">‹</button><div class="month">${monthLabel(f.month)}</div><button class="btn" data-mo="1">›</button></div>`;
   if (R.mode === 'rango') h += `<div class="bar" style="flex-wrap:wrap">
-    <input id="rfromt" class="field" placeholder="dd/mm/aaaa" value="${from ? from.split('-').reverse().join('/') : ''}" style="margin:0;flex:1;min-width:120px">
-    <input id="rfrom" type="date" class="field" style="margin:0;flex:1;min-width:120px" value="${from}">
+    <input id="rfromt" class="field" placeholder="dd/mm/aaaa" value="${from ? from.split('-').reverse().join('/') : ''}" style="margin:0;flex:1;min-width:120px">${calBtn('rfrom', from)}${xb('rclr-from', !!R.from)}
     <span>→</span>
-    <input id="rtot" class="field" placeholder="dd/mm/aaaa" value="${to ? to.split('-').reverse().join('/') : ''}" style="margin:0;flex:1;min-width:120px">
-    <input id="rto" type="date" class="field" style="margin:0;flex:1;min-width:120px" value="${to}">
+    <input id="rtot" class="field" placeholder="dd/mm/aaaa" value="${to ? to.split('-').reverse().join('/') : ''}" style="margin:0;flex:1;min-width:120px">${calBtn('rto', to)}${xb('rclr-to', !!R.to)}
   </div>`;
-  h += `<input id="rq" class="field" type="search" placeholder="Buscar texto (agua, gas, supermercado…)" value="${esc(R.q)}">`;
-  h += `<div class="bar"><button id="racc" class="field" data-act="accpick" style="margin:0;flex:1;text-align:left">${accLbl} ▾</button><select id="rtipo" class="field" style="margin:0;flex:1"><option value="todos" ${R.tipo === 'todos' ? 'selected' : ''}>Todos</option><option value="gasto" ${R.tipo === 'gasto' ? 'selected' : ''}>Gastos</option><option value="ingreso" ${R.tipo === 'ingreso' ? 'selected' : ''}>Ingresos</option></select></div>`;
-  h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button></div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
+  h += `<div class="bar"><input id="rq" class="field" type="search" placeholder="Buscar texto (agua, gas, supermercado…)" value="${esc(R.q)}" style="margin:0;flex:1">${xb('rclr-q', !!R.q)}</div>`;
+  h += `<div class="bar"><button id="racc" class="field" data-act="accpick" style="margin:0;flex:1;text-align:left">${accLbl} ▾</button>${xb('rclr-acc', R.excl.size > 0)}<select id="rtipo" class="field" style="margin:0;flex:1"><option value="todos" ${R.tipo === 'todos' ? 'selected' : ''}>Todos</option><option value="gasto" ${R.tipo === 'gasto' ? 'selected' : ''}>Gastos</option><option value="ingreso" ${R.tipo === 'ingreso' ? 'selected' : ''}>Ingresos</option></select>${xb('rclr-tipo', R.tipo !== 'todos')}</div>`;
+  h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button>${xb('rclr-cat', R.cats.size > 0)}</div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${xb('rclr-view', R.view !== 'fechas')}</div>`;
   h += `<div class="bar" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="repsaved">Guardados (${(S.reports || []).length})</button><button class="btn" data-act="repsave">Guardar informe</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="xls">Exportar Excel</button><button class="btn" data-act="csv">Exportar CSV</button></div>`;
   h += `</div>`;
   h += `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><div class="l">${R.q ? 'Total de «' + esc(R.q) + '»' : 'Resultado del periodo'} · ${esc(periodText())}</div><div class="v">${money(total)}</div><div class="l" style="margin-top:8px">Ingresos ${money(incTot)} · Gastos ${money(expTot)} · ${list.length} apuntes</div></div>`;
@@ -1067,13 +1072,15 @@ function catBlock(title, list, expenseMode){
 /* ---------- Ajustes ---------- */
 function viewSettings(){
   return `<div class="sec"><span>Copia de seguridad</span></div><div class="card">
-    <div class="row" data-act="export-json"><div class="mid"><div class="t1">Exportar JSON</div><div class="t2">Descarga una copia .json de tus datos</div></div></div>
-    <div class="row" data-act="export-html"><div class="mid"><div class="t1">Exportar HTML</div><div class="t2">Descarga una copia .html que se abre siempre con estos datos, sea cual sea el navegador</div></div></div>
-    <div class="row" data-act="import-bank"><div class="mid"><div class="t1">Importar extracto del banco</div><div class="t2">Excel (.xls/.xlsx) o PDF. Añade solo los movimientos que faltan y conserva las categorías ya asignadas</div></div></div>
+    <div class="row" data-act="export-json"><div class="mid"><div class="t1">Exportar copia (JSON)</div><div class="t2">Descarga una copia .json de tus datos</div></div></div>
     <div class="row" data-act="import"><div class="mid"><div class="t1">Importar copia</div><div class="t2">Añade lo que falte y actualiza lo que no hayas cambiado aquí. Tus cambios se mantienen</div></div></div>
-  </div>
-  <div class="sec"><span>Restauración completa</span></div><div class="card">
     <div class="row" data-act="replace-import"><div class="mid"><div class="t1">Reemplazar todos los datos desde un JSON</div><div class="t2">Sustituye por completo la información de este dispositivo. Antes se guarda una copia recuperable.</div></div></div>
+    <div class="row" data-act="restorebak"><div class="mid"><div class="t1">Volver a la copia anterior</div><div class="t2">Deshace la última fusión, importación o reemplazo</div></div></div>
+    <div class="row" data-act="import-bank"><div class="mid"><div class="t1">Importar extracto del banco</div><div class="t2">Excel (.xls/.xlsx) o PDF. Añade solo los movimientos que faltan y conserva las categorías ya asignadas</div></div></div>
+    <div class="row" data-act="export-html"><div class="mid"><div class="t1">Exportar HTML (con los datos de este equipo)</div><div class="t2">Descarga una copia .html independiente que lleva dentro los datos de este dispositivo. No se genera junto al JSON</div></div></div>
+  </div>
+  <div class="sec"><span>Organización</span></div><div class="card">
+    <div class="row" data-act="catsettings"><div class="mid"><div class="t1">Categorías</div><div class="t2">Crear, renombrar, mover o eliminar categorías</div></div></div>
   </div>
   <div class="sec"><span>Exportaciones generales</span></div><div class="card">
     <div class="row" data-act="export-all-xlsx"><div class="mid"><div class="t1">Excel completo (.xlsx)</div><div class="t2">Todas las entidades de la aplicación, organizadas en hojas.</div></div></div>
@@ -1083,10 +1090,6 @@ function viewSettings(){
   </div>
   <div class="sec"><span>Datos</span></div><div class="card">
     <div class="row"><div class="mid"><div class="t1">Versión de datos</div><div class="t2">${DATA_VERSION}</div></div></div>
-    <div class="row" data-act="restorebak"><div class="mid"><div class="t1">Volver a la copia anterior</div><div class="t2">Deshace la última fusión o importación</div></div></div>
-  </div>
-  <div class="sec"><span>Organización</span></div><div class="card">
-    <div class="row" data-act="catsettings"><div class="mid"><div class="t1">Categorías</div><div class="t2">Crear, renombrar, mover o eliminar categorías</div></div></div>
   </div>
   <div class="sec"><span>Inversiones</span></div><div class="card">
     <div class="row" data-act="prices"><div class="mid"><div class="t1">Actualizar precios</div><div class="t2">Consulta la cotización actual en la web</div></div></div>
@@ -1124,7 +1127,8 @@ function pkList(q){
   const all = S.categories.filter(c => !allow || allow.has(c.id)).map(c => { const path = catLabel(c.id); return {id: c.id, name: c.name, path, depth: path.split(' › ').length - 1, n: nrm(path).replace(/[^a-z0-9]+/g, ' ')}; })
     .sort((a,b) => a.path.localeCompare(b.path, 'es'));
   const ws = nrm(q).split(/\s+/).map(w => w.replace(/[^a-z0-9]+/g, '')).filter(Boolean);
-  let h = PK && PK.o.none === false ? '' : pkRow(null, (PK && PK.o.none) || 'Sin categoría', '', sel, 0);
+  const newRow = !allow ? `<div class="pkr" data-pknew="1"><span class="pki" style="background:var(--accent);color:#fff">＋</span><span class="pkt" style="color:var(--accent)">Crear categoría nueva${q && q.trim() ? ' «' + esc(q.trim()) + '»' : ''}</span></div>` : '';
+  let h = newRow + (PK && PK.o.none === false ? '' : pkRow(null, (PK && PK.o.none) || 'Sin categoría', '', sel, 0));
   if (ws.length) {
     let m = all.filter(c => ws.every(w => (' ' + c.n + ' ').includes(' ' + w)));
     if (!m.length) m = all.filter(c => ws.every(w => c.n.includes(w)));
@@ -1143,6 +1147,30 @@ function pkOpen(sel, cb, o){
   el.innerHTML = `<div id="pkbox"><div class="hd"><button class="btn" data-pkx="1">Cancelar</button><strong>${esc((PK.o && PK.o.title) || 'Categoría')}</strong><span style="width:72px"></span></div><div style="padding:6px 0"><input id="pkq" class="field" type="search" placeholder="Buscar categoría…" autocomplete="off" autocapitalize="off" style="margin:0 12px;width:calc(100% - 24px);font-size:16px"></div><div id="pkl">${pkList('')}</div></div>`;
   el.classList.add('on');
   setTimeout(() => { const i = document.getElementById('pkq'); if (i) i.focus(); }, 60);
+}
+function pkNewForm(){
+  if (!PK) return;
+  const q = (document.getElementById('pkq') || {}).value || '';
+  const cats = [...S.categories].filter(isTop).sort((a,b) => a.name.localeCompare(b.name,'es'));
+  document.getElementById('pkbox').innerHTML = `<div class="hd"><button class="btn" data-pknewcancel="1">Atrás</button><strong>Nueva categoría</strong><button class="btn primary" data-pknewsave="1">Crear</button></div>
+    <div class="fld"><div class="fr"><label>Nombre</label><input id="pkn_name" value="${esc(q.trim())}" style="text-align:left" autocomplete="off"></div>
+    <div class="fr"><label>Dentro de</label><select id="pkn_par"><option value="">Ninguna (principal)</option>${cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div></div>
+    <div class="empty">Se creará y quedará elegida en este apunte.</div>`;
+  setTimeout(() => { const i = document.getElementById('pkn_name'); if (i) { i.focus(); i.select(); } }, 50);
+}
+function pkNewSave(){
+  const name = (document.getElementById('pkn_name').value || '').trim();
+  if (!name) { alert('Pon un nombre a la categoría'); return; }
+  const par = Number(document.getElementById('pkn_par').value) || null;
+  const dup = S.categories.find(c => (c.parent || null) === par && nrm(c.name) === nrm(name));
+  let id;
+  if (dup) id = dup.id;
+  else {
+    id = S.categories.reduce((m,c) => Math.max(m, c.id), 0) + 1;
+    S.categories.push({id, name, parent: par, icon: null}); touch('cat', id);
+    reindex(); save();
+  }
+  pkPick(id);
 }
 function pkClose(){ const el = document.getElementById('pk'); if (el) { el.classList.remove('on'); el.innerHTML = ''; } PK = null; }
 function pkPick(id){ const cb = PK && PK.cb; pkClose(); if (cb) cb(id); }
@@ -2025,6 +2053,14 @@ function act(a){
   else if (a === 'csv') exportCsv();
   else if (a === 'toreport') { R.q = f.q; R.mode = 'todo'; go('informes'); }
   else if (a === 'restorebak') restoreBackup();
+  else if (a === 'rclr-mode') { R.mode = 'mes'; render(); }
+  else if (a === 'rclr-from') { R.from = null; render(); }
+  else if (a === 'rclr-to') { R.to = null; render(); }
+  else if (a === 'rclr-q') { R.q = ''; render(); }
+  else if (a === 'rclr-acc') { R.excl.clear(); persistRep(); render(); }
+  else if (a === 'rclr-cat') { R.cats.clear(); persistRep(); render(); }
+  else if (a === 'rclr-tipo') { R.tipo = 'todos'; render(); }
+  else if (a === 'rclr-view') { R.view = 'fechas'; render(); }
   else if (a === 'accpick') repAccOpen();
   else if (a === 'catmerge') mergeCatNow();
   else if (a === 'sync-verify') syncVerify();
@@ -2115,6 +2151,8 @@ function render(){
 
 document.addEventListener('click', e => {
   const t = e.target;
+  if (t.closest('[data-pknewsave]')) { pkNewSave(); return; }
+  if (t.closest('[data-pknewcancel]')) { const o = PK && PK.o, sel = PK && PK.sel, cb = PK && PK.cb; pkOpen(sel, cb, o); return; }
   if (t.id === 'pk' || t.closest('[data-pkx]')) { pkClose(); return; }
   const pkr = t.closest('[data-pk]'); if (pkr) { pkPick(pkr.dataset.pk === '' ? null : Number(pkr.dataset.pk)); return; }
   const pko = t.closest('[data-pkopen]');
@@ -2130,6 +2168,10 @@ document.addEventListener('click', e => {
     pkOpen(Number(inp.value) || null, id => { inp.value = id == null ? '' : id; btn.innerHTML = catBtn(id, empty); btn.classList.toggle('none', id == null); }, o);
     return;
   }
+  const cal = t.closest('[data-calfor]');
+  if (cal) { const i = document.getElementById(cal.dataset.calfor); if (i) { try { i.showPicker(); } catch (er) { i.focus(); i.click(); } } return; }
+  const pkn = t.closest('[data-pknew]');
+  if (pkn) { pkNewForm(); return; }
   const pks = t.closest('[data-pksplit]');
   if (pks && FSPL) { const i = Number(pks.dataset.pksplit); pkOpen(FSPL[i].category, id => { FSPL[i].category = id; splitUI(); }); return; }
   if (t.id === 'ov') { closeForm(); return; }
@@ -2162,12 +2204,17 @@ document.addEventListener('input', e => {
   if (e.target.id === 'pkq') { const l = document.getElementById('pkl'); if (l) l.innerHTML = pkList(e.target.value); return; }
   if (e.target.id === 'q') { f.q = e.target.value; const clear = document.getElementById('qclear'); if (clear) clear.classList.toggle('hide', !f.q); $('#list').innerHTML = moveList(); $('#qsum').innerHTML = f.q ? qSummary() : ''; }
 });
+document.addEventListener('keydown', e => {
+  if ((e.target.id === 'rfromt' || e.target.id === 'rtot') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+});
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'rsort') { S.reportSort = el.value; save(); openSavedReports(); return; }
   if (el.id === 'accsel') { f.account = el.value ? Number(el.value) : null; render(); return; }
   if (el.id === 'rsel') { R.mode = el.value; if (R.mode === 'rango') { const r = pgRange(); R.from = r[0]; R.to = r[1]; } render(); return; }
   if (el.id === 'rfromt' || el.id === 'rtot') {
+    const k = el.id === 'rfromt' ? 'from' : 'to';
+    if (!el.value.trim()) { R[k] = null; render(); return; }
     const v = parseTypedDate(el.value);
     if (!v) { alert('Fecha no válida. Escríbela como dd/mm/aaaa'); render(); return; }
     R[el.id === 'rfromt' ? 'from' : 'to'] = v; render(); return;
