@@ -79,6 +79,17 @@ details>summary::-webkit-details-marker{display:none}
 button.field.lpb{border:0;display:block;text-align:left}
 .refb{text-align:left!important;white-space:normal;line-height:1.3}
 .refb small{display:block;color:var(--muted);font-size:13px}
+.cmpt{width:100%;border-collapse:collapse;font-size:14px}
+.cmpt th{font-size:12px;color:var(--muted);text-align:right;font-weight:600;padding:8px 6px 6px}
+.cmpt td{padding:8px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--sep);vertical-align:top}
+.cmpt th:first-child,.cmpt td:first-child{text-align:left;white-space:normal;word-break:break-word;padding-left:12px}
+.cmpt tr.top td{font-weight:600}
+.cmpt tr.sub td{color:var(--muted);font-size:13px}.cmpt tr.sub td:first-child{padding-left:26px}
+.cmpt tr.tot td{font-weight:700;border-bottom:0;border-top:2px solid var(--sep)}
+.cmpt small{display:block;font-size:12px;font-weight:400}
+.cmphero{padding:8px 4px!important}
+.cmph th,.cmph td,.cmph small{color:#fff!important;border-color:rgba(255,255,255,.25)!important}
+.cmph th{opacity:.85}.cmph tr:last-child td{border-bottom:0}.cmph td{font-size:15px}
 #sheet{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}
 .hd{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--head);position:sticky;top:0;border-bottom:1px solid var(--sep);gap:8px}
 .fld{background:var(--card);margin:10px 12px 0;border-radius:12px;overflow:hidden}
@@ -118,7 +129,7 @@ button.field.lpb{border:0;display:block;text-align:left}
 .mx .indent{padding-left:16px}
 .mx .tophead th,.mx .tophead td{font-weight:700}
 .mx .totalrow th,.mx .totalrow td{font-weight:700;border-top:2px solid var(--sep)}
-@media print{header.top,nav.tabs,.noprint,#hact,#ov,.banner{display:none!important}.printonly{display:block!important}body{padding:0!important;background:#fff!important;color:#000!important;font-size:11px}.card{box-shadow:none!important;border:1px solid #bbb;margin:0 0 6px!important}.hero{background:#eee!important;color:#000!important;margin:6px 0!important;padding:8px!important}.hero .v{font-size:18px!important}.rr{padding:1px 4px!important;font-size:10px!important;line-height:1.15!important;break-inside:avoid}.rr .t1,.rr .amt{font-size:10px!important}.rr .t2,.rs,.rr .rd{font-size:9px!important}.sec{padding:8px 0 2px!important;font-size:11px!important}.cathead,.subhead{font-size:10px!important;padding:3px 4px!important}.mx{overflow:visible!important;margin:0!important}.mx table{font-size:9px!important}.mx th,.mx td{padding:1px 3px!important}}
+@media print{.cmph th,.cmph td,.cmph small{color:#000!important;border-color:#bbb!important}.cmph th{opacity:1}header.top,nav.tabs,.noprint,#hact,#ov,.banner{display:none!important}.printonly{display:block!important}body{padding:0!important;background:#fff!important;color:#000!important;font-size:11px}.card{box-shadow:none!important;border:1px solid #bbb;margin:0 0 6px!important}.hero{background:#eee!important;color:#000!important;margin:6px 0!important;padding:8px!important}.hero .v{font-size:18px!important}.rr{padding:1px 4px!important;font-size:10px!important;line-height:1.15!important;break-inside:avoid}.rr .t1,.rr .amt{font-size:10px!important}.rr .t2,.rs,.rr .rd{font-size:9px!important}.sec{padding:8px 0 2px!important;font-size:11px!important}.cathead,.subhead{font-size:10px!important;padding:3px 4px!important}.mx{overflow:visible!important;margin:0!important}.mx table{font-size:9px!important}.mx th,.mx td{padding:1px 3px!important}}
 .brandmark{width:34px;height:34px;object-fit:cover;border-radius:9px;flex:none} @media(min-width:900px){main{max-width:1040px}.card{margin-left:16px;margin-right:16px}.hero{margin-left:16px;margin-right:16px}} @media(max-width:420px){header.top{padding:8px 10px}.brandmark{width:30px;height:30px}nav.tabs button{font-size:11px}}\n.rc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 12px 24px}
 .rc-tile{padding:12px;margin:0!important;display:flex;flex-direction:column;gap:8px;cursor:pointer}
 .rc-subs{grid-column:1/-1;margin:0!important}
@@ -870,6 +881,7 @@ function reportTable(){
   return rows;
 }
 function reportTitle(){
+  if (CMP.on) return 'Comparativa ' + cmpLabel(CMP.kind, CMP.ref);
   if (!R.cats.size) return 'Informe de movimientos';
   const names = [...R.cats].map(id => catPath(id)).filter(Boolean).sort((a,b) => a.localeCompare(b,'es'));
   return names.length ? names.join(' · ') : 'Informe de movimientos';
@@ -982,7 +994,7 @@ async function buildVisualPdf(){
     const relB = el => el.getBoundingClientRect().bottom - top0;
     const cuts = [];
     host.querySelectorAll('.sec, .cathead, .subhead').forEach(el => cuts.push(rel(el)));
-    host.querySelectorAll('.rr, .mx tr, .empty, .hero, .printonly').forEach(el => cuts.push(relB(el)));
+    host.querySelectorAll('.rr, .mx tr, .cmpt tr, .empty, .hero, .printonly').forEach(el => cuts.push(relB(el)));
     const cutList = [...new Set(cuts.map(v => Math.round(v * 10) / 10))].sort((x, y) => x - y);
     const pdf = new window.jspdf.jsPDF({unit: 'pt', format: 'a4', orientation: 'portrait'});
     const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
@@ -2518,12 +2530,19 @@ function cmpData(from, to){
   return out;
 }
 function cmpPct(cur, prev){ return Math.abs(prev) < 0.005 ? null : (cur - prev) / Math.abs(prev) * 100; }
-function cmpDiffHtml(cur, prev, goodWhenUp){
+function cmpShort(kind, ref){
+  const [y, m] = ref.split('-').map(Number);
+  if (kind === 'mes') return MES[m - 1].slice(0, 3) + ' ' + String(y).slice(2);
+  if (kind === 'trimestre') return (Math.floor((m - 1) / 3) + 1) + 'T ' + String(y).slice(2);
+  return String(y);
+}
+const cmpNum = v => { const r = Math.round(v * 100) / 100; return (r === 0 ? 0 : r).toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always'}); };
+function cmpDiffCell(cur, prev, goodWhenUp, plain){
   const d = Math.round((cur - prev) * 100) / 100;
   if (d === 0) return '<span class="t2">igual</span>';
   const p = cmpPct(cur, prev);
-  const good = goodWhenUp ? d > 0 : d < 0;
-  return `<span class="${good ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${money(d)}${p == null ? ' (nuevo)' : ' (' + (p > 0 ? '+' : '') + Math.round(p) + ' %)'}</span>`;
+  const cls = plain ? '' : ((goodWhenUp ? d > 0 : d < 0) ? 'pos' : 'neg');
+  return `<span class="${cls}">${d > 0 ? '+' : ''}${cmpNum(d)}</span><small class="${cls}">${p == null ? 'nuevo' : (p > 0 ? '+' : '') + Math.round(p) + ' %'}</small>`;
 }
 function cmpMerge(gc, gp){
   const tops = new Map();
@@ -2535,18 +2554,23 @@ function cmpMerge(gc, gp){
   put(gc, 'cur'); put(gp, 'prev');
   return [...tops.values()].sort((a, b) => Math.max(b.cur, b.prev) - Math.max(a.cur, a.prev));
 }
+function cmpHead(first){
+  return `<thead><tr><th>${first}</th><th>${esc(cmpShort(CMP.kind, CMP.ref))}</th><th>${esc(cmpShort(CMP.kind, cmpPrevRef()))}</th><th>Diferencia</th></tr></thead>`;
+}
 function cmpBlock(title, gc, gp, goodWhenUp){
   const rows = cmpMerge(gc, gp);
-  let h = `<div class="sec"><span>${title}</span><span>${money(gc.total)} · antes ${money(gp.total)}</span></div>`;
+  let h = `<div class="sec"><span>${title}</span></div>`;
   if (!rows.length) return h + '<div class="empty">Sin movimientos</div>';
-  h += '<div class="card">';
+  h += `<div class="card" style="overflow-x:auto"><table class="cmpt">${cmpHead('Categoría')}<tbody>`;
   rows.forEach(X => {
+    h += `<tr class="top"><td>${esc(X.name)}</td><td>${cmpNum(X.cur)}</td><td>${cmpNum(X.prev)}</td><td>${cmpDiffCell(X.cur, X.prev, goodWhenUp)}</td></tr>`;
     const subs = [...X.subs.values()].sort((a, b) => Math.max(b.cur, b.prev) - Math.max(a.cur, a.prev));
-    const line = (nm, cur, prev, ind) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding-left:${ind}px"><span style="${ind ? 'color:var(--muted);font-size:14px' : 'font-weight:600'}">${esc(nm)}</span><span style="font-weight:${ind ? 400 : 600}">${money(cur)}</span></div><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--muted);padding-left:${ind}px"><span>antes ${money(prev)}</span>${cmpDiffHtml(cur, prev, goodWhenUp)}</div>`;
-    if (subs.length > 1) h += `<details style="border-bottom:1px solid var(--sep)"><summary style="padding:10px 14px;cursor:pointer">${line(X.name, X.cur, X.prev, 0)}</summary><div style="padding:0 14px 10px 14px">${subs.map(s => `<div style="padding:5px 0">${line(s.name, s.cur, s.prev, 12)}</div>`).join('')}</div></details>`;
-    else h += `<div style="padding:10px 14px;border-bottom:1px solid var(--sep)">${line(X.name, X.cur, X.prev, 0)}</div>`;
+    if (subs.length > 1 || (subs.length === 1 && subs[0].name !== '(directa)' && subs[0].name !== X.name)) subs.forEach(s => {
+      h += `<tr class="sub"><td>${esc(s.name)}</td><td>${cmpNum(s.cur)}</td><td>${cmpNum(s.prev)}</td><td>${cmpDiffCell(s.cur, s.prev, goodWhenUp)}</td></tr>`;
+    });
   });
-  return h + '</div>';
+  h += `<tr class="tot"><td>Total</td><td>${cmpNum(gc.total)}</td><td>${cmpNum(gp.total)}</td><td>${cmpDiffCell(gc.total, gp.total, goodWhenUp)}</td></tr>`;
+  return h + '</tbody></table></div>';
 }
 function viewCompare(){
   const [fc, tc] = cmpRange(CMP.kind, CMP.ref);
@@ -2554,18 +2578,19 @@ function viewCompare(){
   const [fp, tp] = cmpRange(CMP.kind, pref);
   const c = cmpData(fc, tc), p = cmpData(fp, tp);
   const resC = c.inc.total - c.exp.total, resP = p.inc.total - p.exp.total;
-  const open = tc >= todayStr() ? ` <span class="t2">(en curso: hasta hoy)</span>` : '';
-  let h = `<div class="bar"><select id="cmpkind" class="field" style="margin:0;flex:1"><option value="mes" ${CMP.kind === 'mes' ? 'selected' : ''}>Mes</option><option value="trimestre" ${CMP.kind === 'trimestre' ? 'selected' : ''}>Trimestre</option><option value="anio" ${CMP.kind === 'anio' ? 'selected' : ''}>Año</option></select><select id="cmpvs" class="field" style="margin:0;flex:1.4"><option value="anterior" ${CMP.vs === 'anterior' ? 'selected' : ''}>Con el periodo anterior</option><option value="anio" ${CMP.vs === 'anio' ? 'selected' : ''}>Con el año pasado</option></select></div>`;
-  h += `<div class="bar"><button class="btn" data-cmpnav="-1">‹</button><div class="month">${esc(cmpLabel(CMP.kind, CMP.ref))}${open}</div><button class="btn" data-cmpnav="1">›</button></div>`;
-  h += `<div class="empty" style="padding:0 16px 6px">Frente a ${esc(cmpLabel(CMP.kind, pref))}${R.excl.size ? ' · con las cuentas elegidas en Informe' : ''}</div>`;
-  const hero = (l, a, b, good) => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:3px 0"><span>${l}</span><span style="text-align:right"><b>${money(a)}</b> <span style="opacity:.8;font-size:13px">antes ${money(b)}</span><br><span style="font-size:13px">${cmpDiffHtml(a, b, good).replace(/class="(pos|neg)"/, 'style="color:#fff;font-weight:600"')}</span></span></div>`;
-  h += `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)">${hero('Ingresos', c.inc.total, p.inc.total, true)}${hero('Gastos', c.exp.total, p.exp.total, false)}${hero('Ahorro (ingresos − gastos)', resC, resP, true)}</div>`;
+  const open = tc >= todayStr() ? ' (en curso: hasta hoy)' : '';
+  let h = `<div class="printonly"><h2 style="margin:8px 12px">Comparativa: ${esc(cmpLabel(CMP.kind, CMP.ref))} frente a ${esc(cmpLabel(CMP.kind, pref))}</h2><p style="margin:0 12px">${esc(fmtDate(fc))} a ${esc(fmtDate(tc))} · ${esc(fmtDate(fp))} a ${esc(fmtDate(tp))}${R.excl.size ? ' · Cuentas elegidas en Informe' : ''}</p></div>`;
+  h += `<div class="noprint"><div class="bar"><select id="cmpkind" class="field" style="margin:0;flex:1"><option value="mes" ${CMP.kind === 'mes' ? 'selected' : ''}>Mes</option><option value="trimestre" ${CMP.kind === 'trimestre' ? 'selected' : ''}>Trimestre</option><option value="anio" ${CMP.kind === 'anio' ? 'selected' : ''}>Año</option></select><select id="cmpvs" class="field" style="margin:0;flex:1.4"><option value="anterior" ${CMP.vs === 'anterior' ? 'selected' : ''}>Con el periodo anterior</option><option value="anio" ${CMP.vs === 'anio' ? 'selected' : ''}>Con el año pasado</option></select></div>`;
+  h += `<div class="bar"><button class="btn" data-cmpnav="-1">‹</button><div class="month">${esc(cmpLabel(CMP.kind, CMP.ref))}${esc(open)}</div><button class="btn" data-cmpnav="1">›</button></div>`;
+  h += `<div class="bar" style="justify-content:space-between"><span class="t2" style="padding-left:14px">Frente a ${esc(cmpLabel(CMP.kind, pref))}</span><button class="btn" data-act="pdf">Exportar PDF</button></div></div>`;
+  const hr = (l, a, b, good) => `<tr><td>${l}</td><td><b>${cmpNum(a)}</b></td><td>${cmpNum(b)}</td><td>${cmpDiffCell(a, b, good, true)}</td></tr>`;
+  h += `<div class="hero cmphero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><table class="cmpt cmph"><thead><tr><th></th><th>${esc(cmpShort(CMP.kind, CMP.ref))}</th><th>${esc(cmpShort(CMP.kind, pref))}</th><th>Diferencia</th></tr></thead><tbody>${hr('Ingresos', c.inc.total, p.inc.total, true)}${hr('Gastos', c.exp.total, p.exp.total, false)}${hr('Ahorro', resC, resP, true)}</tbody></table></div>`;
   const big = cmpMerge(c.exp, p.exp).map(X => ({name: X.name, d: X.cur - X.prev})).filter(x => Math.abs(x.d) >= 0.005);
   const up = big.filter(x => x.d > 0).sort((a, b) => b.d - a.d).slice(0, 3), down = big.filter(x => x.d < 0).sort((a, b) => a.d - b.d).slice(0, 3);
-  if (up.length || down.length) h += `<div class="sec"><span>Lo que más ha cambiado en gastos</span></div><div class="card" style="padding:8px 14px">${up.map(x => `<div style="display:flex;justify-content:space-between;padding:3px 0"><span>▲ ${esc(x.name)}</span><span class="neg">+${money(x.d)}</span></div>`).join('')}${down.map(x => `<div style="display:flex;justify-content:space-between;padding:3px 0"><span>▼ ${esc(x.name)}</span><span class="pos">${money(x.d)}</span></div>`).join('')}</div>`;
-  h += cmpBlock('Gastos por categoría', c.exp, p.exp, false);
-  h += cmpBlock('Ingresos por categoría', c.inc, p.inc, true);
-  h += `<div class="empty">Toca una categoría para ver sus subcategorías. No cuentan los traspasos ni las inversiones; los reembolsos restan de la categoría del gasto.</div>`;
+  if (up.length || down.length) h += `<div class="sec"><span>Lo que más ha cambiado en gastos</span></div><div class="card" style="padding:6px 14px">${up.map(x => `<div class="rr cmprow" style="display:flex;justify-content:space-between;padding:4px 0"><span>▲ ${esc(x.name)}</span><span class="neg">+${cmpNum(x.d)} €</span></div>`).join('')}${down.map(x => `<div class="rr cmprow" style="display:flex;justify-content:space-between;padding:4px 0"><span>▼ ${esc(x.name)}</span><span class="pos">${cmpNum(x.d)} €</span></div>`).join('')}</div>`;
+  h += cmpBlock('Gastos por categoría (€)', c.exp, p.exp, false);
+  h += cmpBlock('Ingresos por categoría (€)', c.inc, p.inc, true);
+  h += `<div class="empty">No cuentan los traspasos ni las inversiones; los reembolsos restan de la categoría del gasto.</div>`;
   return h;
 }
 function viewReports(){
