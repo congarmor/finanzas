@@ -199,7 +199,7 @@ let S, catMap, accMap, txMap, refMap, payees = [], storeOK = true;
 let selMode = false; const SEL = new Set(); let VIS = [];
 let view = 'cuentas';
 let mintosPanelOpen = false, mintosEditing = false;
-let f = {month: curMonth(), account: null, q: '', field:'desc', more: []};
+let f = {month: curMonth(), account: null, q: '', field:'desc', more: [], nocat: false, range: null, accset: null};
 let FID = null, FK = 'gasto';
 function moneyDigits(v){ const d=String(v==null?'':v).replace(/\D/g,''); return d ? Number(d)/100 : 0; }
 function moneyInputFormat(v){ const d=String(v==null?'':v).replace(/\D/g,''); if(!d) return ''; const n=Number(d)/100; return n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -546,7 +546,7 @@ function selDelete(){
   SEL.clear(); reindex(); save(); render();
 }
 const SEARCH_FIELDS = {desc:['Descripción','Buscar por descripción (agua, gas…)','search'], amount:['Importe','Ej. 1259,48','decimal'], date:['Fecha','dd/mm/aaaa, mm/aaaa o aaaa-mm-dd','search'], note:['Notas','Buscar en notas…','search'], cat:['Categoría','Buscar por categoría…','search'], acc:['Cuenta','Buscar por cuenta…','search']};
-function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()); }
+function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()) || !!f.nocat || !!f.range || !!f.accset; }
 function moreFiltersHtml(){
   return (f.more || []).map((m, i) => { const sf = SEARCH_FIELDS[m.field] || SEARCH_FIELDS.desc; return `<div class="search-wrap"><select class="qfield" data-mfield="${i}" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === m.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input class="field" data-mq="${i}" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(m.q)}" autocomplete="off"><button type="button" class="search-clear" data-mdel="${i}" aria-label="Quitar este filtro" title="Quitar este filtro">×</button></div>`; }).join('') + `<div style="padding:0 12px 4px"><button type="button" class="btn" data-addfilter="1">＋ Añadir otro filtro (se cumplen todos a la vez)</button></div>`;
 }
@@ -560,6 +560,8 @@ function viewMoves(){
   const sf = SEARCH_FIELDS[f.field] || SEARCH_FIELDS.desc;
   h += `<div class="search-wrap"><select id="qfield" class="qfield" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === f.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input id="q" class="field" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(f.q)}"><button type="button" class="search-clear" data-clear-search="q" aria-label="Borrar búsqueda" title="Borrar búsqueda">×</button></div>`;
   h += `<div id="mfilters">${moreFiltersHtml()}</div>`;
+  h += `<div style="padding:0 14px 4px"><label class="filter-toggle"><input type="checkbox" id="nocat" ${f.nocat ? 'checked' : ''}> Solo movimientos sin categoría</label></div>`;
+  if (f.range || f.accset) h += `<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Filtro de la comparativa${f.range ? ': ' + esc(fmtDate(f.range[0]) + ' a ' + fmtDate(f.range[1])) : ''}${f.accset ? ' · ' + f.accset.size + ' cuentas' : ''}</span><button class="btn" data-act="clrcmpfilter">Quitar</button></div>`;
   const hasSearch = hasMoveSearch();
   h += `<div id="qsum">${hasSearch ? qSummary() : ''}</div>`;
   if (selMode) h += selBar();
@@ -582,6 +584,9 @@ function moveList(){
   if (hasMoveSearch()) {
     list = searchFilter(list, f.q, f.field);
     (f.more || []).forEach(m => { if (String(m.q || '').trim()) list = searchFilter(list, m.q, m.field); });
+    if (f.nocat) list = list.filter(isUncat);
+    if (f.range) list = list.filter(t => t.date >= f.range[0] && t.date <= f.range[1]);
+    if (f.accset) list = list.filter(t => f.accset.has(t.account));
   }
   list = [...list].sort((a,b) => byAsc(b,a));
   VIS = list.map(t => t.id);
@@ -1479,14 +1484,102 @@ document.addEventListener('dragend', () => { dragId = null; });
 const ICONS = ['🕯️','💐','🩺','👓','🦷','🧴','🛋️','🛏️','🍳','🥖','🥦','🍷','🎭','🎰','🎟️','🤝','⚖️','🏛️','💳','📈','🐾','🎒','🧾','🏨','🚕','🚆','🔌','🔥','🚿','📞','📡','🧰','🧵','💄','💍','🖥️','⌚','📷','🎁','🏠','🚗','🛒','🍽️','👕','💻','✈️','💊','🎓','🎁','💡','💧','📱','🎬','🐶','🏦','💰','🔧','⛽','🚌','👶','🏥','📚','🎮','🧾','🛠️','🌳','☕','🍺','🧴','💇','🏋️','🎵','🎟️','📦','🏷️','👔','🧹','🔑','🎂','🏖️','🪑','🧸','🛁','🌐','📺','🎧','🚲'];
 const ICON_RULES = [[/hacienda|impuesto|tasa|ibi\b|plusvalia/,'🏛️'],[/loteria|apuesta|primitiva|quiniela/,'🎰'],[/deceso|cementerio|funer|flores/,'🕯️'],[/sindicato|ccoo|juridic/,'🤝'],[/visual|gafas|optic|lentes/,'👓'],[/seguro medico|sanitaria|clinica|hospital|salud/,'🩺'],[/dental|dentista/,'🦷'],[/cuidado personal|higiene|peluquer|belleza/,'🧴'],[/mueble|accesorio|decorac/,'🛋️'],[/gadget/,'🎧'],[/gas\b|butano/,'🔥'],[/internet|banda ancha|fibra/,'📡'],[/gimnasio|deporte/,'🏋️'],[/ocio|tiempo libre/,'🎭'],[/restaur|cena|cafeteria/,'🍽️'],[/lavado/,'🚿'],[/comunidad|escalera/,'🏢'],[/regalo/,'🎁'],[/intereses|rendimiento|dividendo/,'📈'],[/vivienda|hipoteca|alquiler|casa|hogar|fincas|comunidad/,'🏠'],[/autom|coche|vehiculo|parking|aparcamiento/,'🚗'],[/gasolina|combustible/,'⛽'],[/aliment|superm|compra|comida/,'🛒'],[/restaur|bar|cafe|comer fuera/,'🍽️'],[/ropa|calzado|moda/,'👕'],[/tecno|electr|inform|ordenador|movil|telefono movil/,'💻'],[/viaje|vuelo|hotel|vacacion/,'✈️'],[/salud|medic|farmac|dentista/,'💊'],[/educa|formac|curso|colegio|universidad|escuela/,'🎓'],[/regalo/,'🎁'],[/luz|electric|energia/,'💡'],[/agua/,'💧'],[/telefon|internet|comunicac/,'📱'],[/ocio|cine|entreten|suscrip/,'🎬'],[/mascota|perro|gato|animal|veterin/,'🐶'],[/banco|comision|financ|seguro/,'🏦'],[/sueldo|nomina|salario|ingreso/,'💰'],[/repar|manten|bricol|herramienta/,'🔧'],[/transporte|bus|tren|metro|taxi|peaje/,'🚌'],[/hijo|nino|bebe|guarderia/,'👶'],[/libro|papeleria/,'📚'],[/juego|videojuego/,'🎮'],[/impuesto|tasa|hacienda|jurid|abogad|notari/,'🧾'],[/jard|planta/,'🌳'],[/deporte|gimnas/,'🏋️'],[/musica/,'🎵'],[/envio|paquete/,'📦'],[/peluquer|belleza|higiene/,'💇']];
 function nrm(s){ return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
-function iconOf(c){
+/* Reglas más específicas (van antes que las anteriores; gana la primera que coincida con el nombre) */
+ICON_RULES.unshift(
+  [/peluquer|barber|corte de pelo/, '💇'],
+  [/calzado|zapat|zapatill|deportivas|sandalia|botas/, '👟'],
+  [/lenceria|ropa interior|calcetin|pijama/, '🩲'],
+  [/vestimenta|vestuario|textil|camiseta|pantalon|abrigo|chaqueta|vestido|\bropa\b|\bmoda\b/, '👕'],
+  [/bolso|mochila|maleta|equipaje/, '👜'],
+  [/joyer|bisuter|anillo|pulsera|reloj/, '💍'],
+  [/perfum|cosmetic|maquill|estetic|manicur|depilac|belleza/, '💄'],
+  [/higiene|cuidado personal|aseo|champu|jabon|pasta de dientes/, '🧴'],
+  [/farmaci|medicament|medicin|botiquin/, '💊'],
+  [/dentist|dental|ortodon|odontol/, '🦷'],
+  [/oculist|optic|gafas|lentes|graduad/, '👓'],
+  [/fisio|podolog|psicolog|terapia|logoped|quiropract|masaje/, '🩺'],
+  [/analitica|analisis clinic|urgencias|hospital|clinica|consulta medic|medico/, '🏥'],
+  [/seguro.*(coche|auto|vehiculo|moto)|(coche|auto|vehiculo|moto).*seguro/, '🚗'],
+  [/seguro.*hogar|hogar.*seguro/, '🏠'],
+  [/gasolin|gasoil|diesel|combustible|carburante|repostaje|gasolinera/, '⛽'],
+  [/itv|taller|mecanic|neumatic|averia|revision|aceite|recambio/, '🔧'],
+  [/peaje|autopista|via ?t\b/, '🛣️'],
+  [/parking|aparcamiento|garaje|zona azul|\bora\b/, '🅿️'],
+  [/multa|sancion|\bdgt\b|infraccion/, '🚨'],
+  [/renting|leasing|coche|vehiculo|automovil|automov/, '🚗'],
+  [/moto\b|motocicleta|scooter/, '🏍️'],
+  [/bici|bicicleta|patinete/, '🚲'],
+  [/taxi|uber|cabify|\bvtc\b/, '🚕'],
+  [/avion|vuelo|aerolinea|aeropuerto|ryanair|vueling|iberia/, '✈️'],
+  [/\btren\b|renfe|cercanias|\bave\b|ferrocarril|\bmetro\b|tranvia/, '🚆'],
+  [/autobus|\bbus\b|abono transporte|transporte publico/, '🚌'],
+  [/hotel|hostal|alojamiento|airbnb|booking|apartamento turistico|camping/, '🏨'],
+  [/excursion|senderismo|monta[nñ]a|\bruta\b|\brutas\b|esqui|nieve/, '🥾'],
+  [/playa|piscina|vacacion|verano/, '🏖️'],
+  [/fruta|fruteria|verdura|hortaliza|ensalada/, '🥦'],
+  [/carnicer|charcuter|embutido|jamon|\bcarne\b|pollo/, '🥩'],
+  [/pescad|marisc|pescaderia|\bpescado\b/, '🐟'],
+  [/panader|pastel|boller|\bpan\b|horno de pan|tarta/, '🥖'],
+  [/helad|postre|dulce|chuches|golosina|chocolate/, '🍦'],
+  [/cerveza|cervecer|copas|\bbar\b|\bpub\b|discoteca|cocteles/, '🍺'],
+  [/vino|licor|bodega|bebida|alcohol/, '🍷'],
+  [/cafe|cafeteria|desayuno|merienda/, '☕'],
+  [/comida rapida|hamburguesa|burger|kebab|fast food|mcdonald|pizza|pizzeria|take ?away|comida a domicilio|delivery/, '🍔'],
+  [/restaur|comer fuera|menu del dia|almuerzo|\bcena\b|\bmenu\b/, '🍽️'],
+  [/limpieza|detergente|lejia|fregona|lavanderia|tintoreria|plancha/, '🧹'],
+  [/basura|residuos|reciclaje/, '🗑️'],
+  [/reforma|\bobras?\b|albanil|pintura|fontaner|electricista|cerrajer|carpinter|bricolaje|ferreteria|herramienta/, '🔨'],
+  [/electrodomestic|lavadora|nevera|frigorific|lavavajillas|microondas|horno\b|aire acondicionado/, '🔌'],
+  [/calefaccion|caldera|pellet|le[nñ]a|gasoleo/, '🔥'],
+  [/jardin|jardiner|plantas|flores|huerto|cesped/, '🌿'],
+  [/netflix|hbo|disney|spotify|suscripcion|streaming|prime video|youtube|televis|\btv\b|television|dazn/, '📺'],
+  [/videojuego|playstation|steam|xbox|nintendo|\bjuegos?\b/, '🎮'],
+  [/libro|libreria|lectura|kindle|revista|periodico|prensa/, '📚'],
+  [/musica|instrumento|guitarra|piano|concierto/, '🎵'],
+  [/cine|teatro|\bentradas?\b|espectaculo|museo|exposicion|parque tematico/, '🎬'],
+  [/fotograf|camara/, '📷'],
+  [/juguete|ludoteca|cumple.*ni[nñ]o/, '🧸'],
+  [/guarderia|ni[nñ]os|hijos?|bebe|pa[nñ]ales|canguro|infantil/, '👶'],
+  [/colegio|extraescolar|academia|clases|curso|formacion|universidad|matricula|master|idioma|ingles|escuela/, '🎓'],
+  [/material escolar|papeleria|uniforme|libros de texto/, '🎒'],
+  [/veterinari|mascota|\bperros?\b|\bgatos?\b|pienso|animal/, '🐾'],
+  [/boda|comunion|bautizo|celebracion|banquete/, '💒'],
+  [/cumplea[nñ]os|fiesta|aniversario|navidad|reyes/, '🎂'],
+  [/regalo|obsequio|detalle/, '🎁'],
+  [/donativ|donacion|\bong\b|caridad|colecta|limosna|iglesia|parroquia/, '💝'],
+  [/gimnasio|\bgym\b|fitness|padel|tenis|futbol|running|natacion|deporte|yoga|pilates/, '🏋️'],
+  [/movil|smartphone|iphone|tarifa|telefon/, '📱'],
+  [/internet|fibra|wifi|router|banda ancha/, '📡'],
+  [/ordenador|portatil|informatica|tablet|impresora|\btinta\b|teclado|monitor/, '💻'],
+  [/software|licencia|dominio|hosting|icloud|google one|nube|\bapp\b|aplicacion/, '☁️'],
+  [/auricular|altavoz|gadget|accesorios tecnolog/, '🎧'],
+  [/estanco|tabaco|cigarr|vapeo/, '🚬'],
+  [/correos|envio|mensajeria|paqueteria|paquete|seur|mrw|correo/, '📦'],
+  [/abogad|notari|gestor|gestoria|registro|tramite|documentacion|jurid/, '⚖️'],
+  [/hacienda|irpf|\brenta\b|impuesto|tasa|\bibi\b|plusvalia|\biva\b|ayuntamiento/, '🏛️'],
+  [/devoluci|reembolso|abono factura|rectific/, '🔄'],
+  [/aval|fianza|deposito|garantia/, '📝'],
+  [/prestamo|credito|financiacion|cuota prestamo|tarjeta|intereses pagad|hipoteca/, '💳'],
+  [/comision|mantenimiento cuenta|bancari|gastos banco/, '🏦'],
+  [/nomina|sueldo|salario|paga extra|extra\b|bonus|atrasos/, '💰'],
+  [/pension|jubilacion|prestacion|desempleo|subsidio|\bparo\b|ayuda/, '💶'],
+  [/cajero|retirada|efectivo|monedas|billetes/, '💵'],
+  [/ahorro|hucha|fondo de emergencia/, '🐖'],
+  [/venta|vendido|wallapop|segunda mano|ebay/, '🏷️'],
+  [/dividendo|rendimiento|intereses cobrad|plusvalias|bolsa|acciones|fondos?\b|inversion/, '📈'],
+  [/seguro|poliza|aseguradora/, '🛡️'],
+  [/varios|otros|diverso|imprevisto|miscelanea|sin clasificar/, '🧩']
+);
+ICONS.push(...['👟','👠','👞','🥾','👜','👛','🎩','🧥','🧦','🧣','🧢','👗','👖','🩳','🩲','👙','🕶️','💇','💅','💄','💍','🧼','🪒','🧻','🧽','🧯','🗑️','🔨','🪛','🔩','⚙️','🪜','🧱','🚪','🔋','🚰','❄️','🌡️','🛡️','📝','🗂️','📎','✂️','🖨️','⌨️','🖱️','📲','☁️','📶','🛰️','🕹️','🎲','♟️','🧩','🎯','🎳','🎤','🎸','🎹','🥁','🎻','🎨','🖌️','📸','🎞️','🍿','🍔','🍕','🍟','🌮','🍣','🍜','🥗','🥩','🍗','🐟','🥚','🧀','🥛','🍞','🥐','🍎','🍌','🍇','🍊','🍓','🥕','🍅','🥔','🌽','🍫','🍦','🍰','🍩','🍪','🧁','🥂','🍸','🍹','🥤','🧃','🍼','🍵','🚬','💉','🩹','🧬','🦴','👁️','🧠','🚑','♿','🐱','🐕','🐴','🐾','🦮','🚙','🚐','🏍️','🛵','🛴','🚘','🚓','🅿️','🛣️','🚦','🚧','⚓','⛴️','🚢','🛫','🚁','🚂','🚇','🚋','🚏','🧳','🗺️','🧭','⛺','🏕️','🏝️','🏔️','⛷️','🏄','🏊','🚴','🏃','🧘','⚽','🏀','🎾','🏐','⛳','🥊','🎣','🏩','🏡','🏢','🏫','🏪','🏬','⛪','🕌','💒','🎉','🎈','🎄','🎃','🎅','💝','🌹','🌷','🌻','🌿','🌱','🌲','🍀','👪','👴','🧓','📖','📓','✏️','📐','🔬','🔭','💼','💶','💵','💴','💷','💸','🏧','📉','📊','🐖','📮','✉️','☎️','🔒','⏰','⌛','🧺','🛍️','🆘','❤️','⭐','🔄','🥾','🚨','🚕'].filter(i => !ICONS.includes(i)));
+{ const u = [...new Set(ICONS)]; ICONS.length = 0; ICONS.push(...u); }
+function iconOf(c, inner){
   if (!c) return null;
   if (c.icon) return c.icon;
   const n = nrm(c.name);
   for (const [re, ic] of ICON_RULES) if (re.test(n)) return ic;
   const p = c.parent ? catMap.get(c.parent) : null;
-  if (p) return iconOf(p);
-  return null;
+  if (p) { const r = iconOf(p, true); if (r) return r; }
+  return inner ? null : '🏷️';
 }
 function catIconOf(id){ const ic = iconOf(catMap.get(id)); return ic; }
 function iconPickHtml(){
@@ -2217,6 +2310,8 @@ function act(a){
   else if (a === 'accnone') { R.excl = new Set(S.accounts.map(a => a.id)); repAccRefresh(); }
   else if (a === 'accdone') { closeForm(); render(); }
   else if (a === 'dismiss') { MIGRATED = false; render(); }
+  else if (a === 'clrcmpfilter') { f.range = null; f.accset = null; render(); }
+  else if (a === 'cmpuncat') { f.range = cmpRange(CMP.kind, CMP.ref); f.accset = new Set(S.accounts.filter(cmpAccOk).map(x => x.id)); f.nocat = true; f.q = ''; f.more = []; go('movimientos'); }
 }
 
 const MINTOS_FIELDS = [
@@ -2367,6 +2462,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('change', e => {
   const el = e.target;
+  if (el.id === 'nocat') { f.nocat = el.checked; render(); return; }
   if (el.id === 'rsort') { S.reportSort = el.value; save(); openSavedReports(); return; }
   if (el.id === 'qfield') { f.field = el.value; const sf = SEARCH_FIELDS[f.field] || SEARCH_FIELDS.desc; const qi = document.getElementById('q'); if (qi) { qi.placeholder = sf[1]; qi.inputMode = sf[2]; qi.focus(); } if (hasMoveSearch()) render(); return; }
   if (el.id === 'accsel') { f.account = el.value ? Number(el.value) : null; render(); return; }
@@ -2496,7 +2592,23 @@ document.addEventListener('change', e => {
 });
 
 /* ---------- Comparativa de periodos (vista aparte; el informe de siempre no cambia) ---------- */
-let CMP = {on: false, kind: 'mes', ref: curMonth(), vs: 'anterior'};
+let CMP = {on: false, kind: 'mes', ref: curMonth(), vs: 'anterior', accs: 'patrimonio'};
+/* Cuentas que entran en la comparativa: por defecto solo las que suman al patrimonio y no son de inversión
+   (las archivadas se mantienen para no perder su historial) */
+function cmpAccOk(a){
+  if (!a) return false;
+  if (CMP.accs === 'todas') return true;
+  if (CMP.accs === 'informe') return !R.excl.has(a.id);
+  return !!a.inNetWorth && a.type !== 'inversion';
+}
+/* Apunte sin categoría (o con una categoría que ya no existe), igual que cuenta la comparativa */
+function isUncat(t){
+  const none = id => id == null || !catMap.has(id);
+  if (t.type === 'transferencia' || t.type === 'inversion') return false;
+  if (t.splits && t.splits.length) return t.splits.some(s => none(s.category));
+  if (isLinkedRef(t)) return none(refundCat(t));
+  return none(t.category);
+}
 function cmpMonthRange(ym){ const [y, m] = ym.split('-').map(Number); return [ym + '-01', ym + '-' + pad(new Date(y, m, 0).getDate())]; }
 function cmpRange(kind, ref){
   const [y, m] = ref.split('-').map(Number);
@@ -2514,7 +2626,7 @@ function cmpLabel(kind, ref){
 function cmpPrevRef(){ return CMP.vs === 'anio' ? shiftMonth(CMP.ref, -12) : cmpShift(CMP.kind, CMP.ref, -1); }
 function cmpData(from, to){
   let list = S.transactions.filter(t => t.date >= from && t.date <= to && !isFuture(t) && t.type !== 'transferencia' && t.type !== 'inversion');
-  if (R.excl.size) list = list.filter(t => !R.excl.has(t.account));
+  list = list.filter(t => cmpAccOk(accMap.get(t.account)));
   const mk = () => ({total: 0, tops: new Map()});
   const out = {inc: mk(), exp: mk()};
   const add = (g, l, v) => {
@@ -2563,7 +2675,7 @@ function cmpBlock(title, gc, gp, goodWhenUp){
   if (!rows.length) return h + '<div class="empty">Sin movimientos</div>';
   h += `<div class="card" style="overflow-x:auto"><table class="cmpt">${cmpHead('Categoría')}<tbody>`;
   rows.forEach(X => {
-    h += `<tr class="top"><td>${esc(X.name)}</td><td>${cmpNum(X.cur)}</td><td>${cmpNum(X.prev)}</td><td>${cmpDiffCell(X.cur, X.prev, goodWhenUp)}</td></tr>`;
+    h += `<tr class="top"><td>${esc(X.name)}${X.id === 0 ? ' <button class="btn noprint" style="padding:2px 6px;font-size:13px" data-act="cmpuncat">ver ›</button>' : ''}</td><td>${cmpNum(X.cur)}</td><td>${cmpNum(X.prev)}</td><td>${cmpDiffCell(X.cur, X.prev, goodWhenUp)}</td></tr>`;
     const subs = [...X.subs.values()].sort((a, b) => Math.max(b.cur, b.prev) - Math.max(a.cur, a.prev));
     if (subs.length > 1 || (subs.length === 1 && subs[0].name !== '(directa)' && subs[0].name !== X.name)) subs.forEach(s => {
       h += `<tr class="sub"><td>${esc(s.name)}</td><td>${cmpNum(s.cur)}</td><td>${cmpNum(s.prev)}</td><td>${cmpDiffCell(s.cur, s.prev, goodWhenUp)}</td></tr>`;
@@ -2579,10 +2691,11 @@ function viewCompare(){
   const c = cmpData(fc, tc), p = cmpData(fp, tp);
   const resC = c.inc.total - c.exp.total, resP = p.inc.total - p.exp.total;
   const open = tc >= todayStr() ? ' (en curso: hasta hoy)' : '';
-  let h = `<div class="printonly"><h2 style="margin:8px 12px">Comparativa: ${esc(cmpLabel(CMP.kind, CMP.ref))} frente a ${esc(cmpLabel(CMP.kind, pref))}</h2><p style="margin:0 12px">${esc(fmtDate(fc))} a ${esc(fmtDate(tc))} · ${esc(fmtDate(fp))} a ${esc(fmtDate(tp))}${R.excl.size ? ' · Cuentas elegidas en Informe' : ''}</p></div>`;
+  let h = `<div class="printonly"><h2 style="margin:8px 12px">Comparativa: ${esc(cmpLabel(CMP.kind, CMP.ref))} frente a ${esc(cmpLabel(CMP.kind, pref))}</h2><p style="margin:0 12px">${esc(fmtDate(fc))} a ${esc(fmtDate(tc))} · ${esc(fmtDate(fp))} a ${esc(fmtDate(tp))} · ${({patrimonio: 'Cuentas del patrimonio sin inversión', todas: 'Todas las cuentas', informe: 'Cuentas elegidas en Informe'})[CMP.accs]}</p></div>`;
   h += `<div class="noprint"><div class="bar"><select id="cmpkind" class="field" style="margin:0;flex:1"><option value="mes" ${CMP.kind === 'mes' ? 'selected' : ''}>Mes</option><option value="trimestre" ${CMP.kind === 'trimestre' ? 'selected' : ''}>Trimestre</option><option value="anio" ${CMP.kind === 'anio' ? 'selected' : ''}>Año</option></select><select id="cmpvs" class="field" style="margin:0;flex:1.4"><option value="anterior" ${CMP.vs === 'anterior' ? 'selected' : ''}>Con el periodo anterior</option><option value="anio" ${CMP.vs === 'anio' ? 'selected' : ''}>Con el año pasado</option></select></div>`;
   h += `<div class="bar"><button class="btn" data-cmpnav="-1">‹</button><div class="month">${esc(cmpLabel(CMP.kind, CMP.ref))}${esc(open)}</div><button class="btn" data-cmpnav="1">›</button></div>`;
-  h += `<div class="bar" style="justify-content:space-between"><span class="t2" style="padding-left:14px">Frente a ${esc(cmpLabel(CMP.kind, pref))}</span><button class="btn" data-act="pdf">Exportar PDF</button></div></div>`;
+  h += `<div class="bar"><select id="cmpaccs" class="field" style="margin:0;flex:1"><option value="patrimonio" ${CMP.accs === 'patrimonio' ? 'selected' : ''}>Cuentas del patrimonio (sin inversión)</option><option value="todas" ${CMP.accs === 'todas' ? 'selected' : ''}>Todas las cuentas</option><option value="informe" ${CMP.accs === 'informe' ? 'selected' : ''}>Las elegidas en Informe</option></select></div>`;
+  h += `<div class="bar" style="justify-content:space-between"><span class="t2" style="padding-left:14px">Frente a ${esc(cmpLabel(CMP.kind, pref))} · ${S.accounts.filter(cmpAccOk).length} de ${S.accounts.length} cuentas</span><button class="btn" data-act="pdf">Exportar PDF</button></div></div>`;
   const hr = (l, a, b, good) => `<tr><td>${l}</td><td><b>${cmpNum(a)}</b></td><td>${cmpNum(b)}</td><td>${cmpDiffCell(a, b, good, true)}</td></tr>`;
   h += `<div class="hero cmphero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><table class="cmpt cmph"><thead><tr><th></th><th>${esc(cmpShort(CMP.kind, CMP.ref))}</th><th>${esc(cmpShort(CMP.kind, pref))}</th><th>Diferencia</th></tr></thead><tbody>${hr('Ingresos', c.inc.total, p.inc.total, true)}${hr('Gastos', c.exp.total, p.exp.total, false)}${hr('Ahorro', resC, resP, true)}</tbody></table></div>`;
   const big = cmpMerge(c.exp, p.exp).map(X => ({name: X.name, d: X.cur - X.prev})).filter(x => Math.abs(x.d) >= 0.005);
@@ -2608,6 +2721,7 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'cmpkind') { CMP.kind = el.value; render(); }
   else if (el.id === 'cmpvs') { CMP.vs = el.value; render(); }
+  else if (el.id === 'cmpaccs') { CMP.accs = el.value; render(); }
 });
 
 lpEnhance();
