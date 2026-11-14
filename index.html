@@ -560,7 +560,7 @@ function viewMoves(){
   const sf = SEARCH_FIELDS[f.field] || SEARCH_FIELDS.desc;
   h += `<div class="search-wrap"><select id="qfield" class="qfield" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === f.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input id="q" class="field" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(f.q)}"><button type="button" class="search-clear" data-clear-search="q" aria-label="Borrar búsqueda" title="Borrar búsqueda">×</button></div>`;
   h += `<div id="mfilters">${moreFiltersHtml()}</div>`;
-  h += `<div style="padding:0 14px 4px"><label class="filter-toggle"><input type="checkbox" id="nocat" ${f.nocat ? 'checked' : ''}> Solo movimientos sin categoría</label></div>`;
+  h += `<div style="padding:0 14px 4px"><label class="filter-toggle"><input type="checkbox" id="nocat" ${f.nocat ? 'checked' : ''}> Solo movimientos sin categoría</label><button class="btn" data-act="tpopen" style="padding:4px 0">🔍 Buscar traspasos entre mis cuentas</button></div>`;
   if (f.range || f.accset) h += `<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Filtro de la comparativa${f.range ? ': ' + esc(fmtDate(f.range[0]) + ' a ' + fmtDate(f.range[1])) : ''}${f.accset ? ' · ' + f.accset.size + ' cuentas' : ''}</span><button class="btn" data-act="clrcmpfilter">Quitar</button></div>`;
   const hasSearch = hasMoveSearch();
   h += `<div id="qsum">${hasSearch ? qSummary() : ''}</div>`;
@@ -2310,6 +2310,10 @@ function act(a){
   else if (a === 'accnone') { R.excl = new Set(S.accounts.map(a => a.id)); repAccRefresh(); }
   else if (a === 'accdone') { closeForm(); render(); }
   else if (a === 'dismiss') { MIGRATED = false; render(); }
+  else if (a === 'tpopen') tpOpen();
+  else if (a === 'tpall') { TP.forEach(x => { x.on = true; }); tpRender(); }
+  else if (a === 'tpnone') { TP.forEach(x => { x.on = false; }); tpRender(); }
+  else if (a === 'tpapply') tpApply();
   else if (a === 'clrcmpfilter') { f.range = null; f.accset = null; render(); }
   else if (a === 'cmpuncat') { f.range = cmpRange(CMP.kind, CMP.ref); f.accset = new Set(S.accounts.filter(cmpAccOk).map(x => x.id)); f.nocat = true; f.q = ''; f.more = []; go('movimientos'); }
 }
@@ -2609,6 +2613,63 @@ function isUncat(t){
   if (isLinkedRef(t)) return none(refundCat(t));
   return none(t.category);
 }
+/* ---------- Buscar traspasos entre mis cuentas guardados como gasto + ingreso ---------- */
+let TP = null;
+function tpFind(){
+  const [from, to] = f.range || ['0000-01-01', '9999-12-31'];
+  const ok = t => (t.type === 'gasto' || t.type === 'ingreso') && !t.splits && t.refundOf == null && refundsOf(t.id).length === 0 && isUncat(t) && t.date >= from && t.date <= to && Math.abs(t.amount) > 0.004;
+  const c = S.transactions.filter(ok);
+  const neg = c.filter(t => t.amount < 0), pos = c.filter(t => t.amount > 0);
+  const day = d => Math.round(new Date(d + 'T00:00:00').getTime() / 864e5);
+  const cand = [];
+  neg.forEach(n => pos.forEach(p => {
+    if (p.account === n.account || Math.abs(n.amount + p.amount) > 0.005) return;
+    const d = Math.abs(day(n.date) - day(p.date));
+    if (d <= 7) cand.push({n, p, d});
+  }));
+  cand.sort((a, b) => a.d - b.d || a.n.id - b.n.id);
+  const usedN = new Set(), usedP = new Set(), out = [];
+  cand.forEach(x => {
+    if (usedN.has(x.n.id) || usedP.has(x.p.id)) return;
+    usedN.add(x.n.id); usedP.add(x.p.id);
+    out.push({neg: x.n, pos: x.p, on: true});
+  });
+  out.sort((a, b) => Math.abs(b.neg.amount) - Math.abs(a.neg.amount) || b.neg.date.localeCompare(a.neg.date));
+  return out;
+}
+function tpOpen(){ TP = tpFind(); tpRender(); $('#ov').classList.add('on'); }
+function tpRender(){
+  const sel = TP.filter(x => x.on);
+  const sum = sel.reduce((s, x) => s + Math.abs(x.neg.amount), 0);
+  const rows = TP.map((x, i) => {
+    const a = accMap.get(x.neg.account), b = accMap.get(x.pos.account), d = x.neg.desc || x.pos.desc || '';
+    return `<div class="row" data-tp="${i}"><span class="chk ${x.on ? 'on' : ''}">✓</span><div class="mid"><div class="t1">${money(Math.abs(x.neg.amount))} · ${esc(fmtDate(x.neg.date))}${x.neg.date !== x.pos.date ? ' → ' + esc(fmtDate(x.pos.date)) : ''}</div><div class="t2">${esc(a ? a.name : '?')} → ${esc(b ? b.name : '?')}${d ? ' · ' + esc(d) : ''}</div></div></div>`;
+  }).join('');
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Traspasos detectados</strong><button class="btn primary" data-act="tpapply" ${sel.length ? '' : 'disabled'}>Convertir</button></div>` +
+    (TP.length
+      ? `<div class="bar" style="justify-content:space-between"><button class="btn" data-act="tpall">Todos</button><span class="t2">${sel.length} de ${TP.length} · ${money(sum)}</span><button class="btn" data-act="tpnone">Ninguno</button></div><div class="card" style="margin:0 12px 12px">${rows}</div>`
+      : `<div class="empty">No he encontrado parejas de apuntes sin categoría con el mismo importe y signo contrario en cuentas distintas.</div>`) +
+    `<div class="empty">Busca un gasto y un ingreso sin categoría del mismo importe, en cuentas distintas y con hasta 7 días de diferencia${f.range ? ' (dentro del periodo filtrado)' : ''}. Desmarca los que no sean traspasos. Al convertir, dejan de contar como ingreso y gasto. Puedes deshacerlo en Ajustes → «Volver a la copia anterior».</div><div style="height:28px"></div>`;
+}
+function tpApply(){
+  const sel = TP.filter(x => x.on);
+  if (!sel.length) return;
+  if (!confirm('Se convertirán ' + sel.length + ' parejas en transferencias entre tus cuentas (' + money(sel.reduce((s, x) => s + Math.abs(x.neg.amount), 0)) + '). Antes se guarda una copia. ¿Continuar?')) return;
+  setBackup(KEY + '-antes-fusion', JSON.stringify(S));
+  sel.forEach(x => {
+    const n = x.neg, p = x.pos;
+    Object.assign(n, {type: 'transferencia', category: null, splits: null, payee: null, transferAccount: p.account, pair: p.id});
+    Object.assign(p, {type: 'transferencia', category: null, splits: null, payee: null, transferAccount: n.account, pair: n.id});
+    touch('tx', n.id); touch('tx', p.id);
+  });
+  const k = sel.length; TP = null;
+  reindex(); save(); closeForm(); render();
+  alert(k + ' traspasos convertidos.');
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-tp]');
+  if (r && TP) { e.stopPropagation(); const x = TP[Number(r.dataset.tp)]; if (x) x.on = !x.on; tpRender(); }
+}, true);
 function cmpMonthRange(ym){ const [y, m] = ym.split('-').map(Number); return [ym + '-01', ym + '-' + pad(new Date(y, m, 0).getDate())]; }
 function cmpRange(kind, ref){
   const [y, m] = ref.split('-').map(Number);
