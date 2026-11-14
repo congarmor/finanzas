@@ -886,7 +886,7 @@ function reportTable(){
   return rows;
 }
 function reportTitle(){
-  if (CMP.on) return 'Comparativa ' + cmpLabel(CMP.kind, CMP.ref);
+  if (CMP.on) return 'Comparativa ' + cmpLabel(CMP.kind, cmpCur());
   if (!R.cats.size) return 'Informe de movimientos';
   const names = [...R.cats].map(id => catPath(id)).filter(Boolean).sort((a,b) => a.localeCompare(b,'es'));
   return names.length ? names.join(' · ') : 'Informe de movimientos';
@@ -2315,7 +2315,7 @@ function act(a){
   else if (a === 'tpnone') { TP.forEach(x => { x.on = false; }); tpRender(); }
   else if (a === 'tpapply') tpApply();
   else if (a === 'clrcmpfilter') { f.range = null; f.accset = null; render(); }
-  else if (a === 'cmpuncat') { f.range = cmpRange(CMP.kind, CMP.ref); f.accset = new Set(S.accounts.filter(cmpAccOk).map(x => x.id)); f.nocat = true; f.q = ''; f.more = []; go('movimientos'); }
+  else if (a === 'cmpuncat') { f.range = cmpRange(CMP.kind, cmpCur()); f.accset = new Set(S.accounts.filter(cmpAccOk).map(x => x.id)); f.nocat = true; f.q = ''; f.more = []; go('movimientos'); }
 }
 
 const MINTOS_FIELDS = [
@@ -2462,6 +2462,7 @@ document.addEventListener('focusout', e => {
   }
 });
 document.addEventListener('keydown', e => {
+  if (/^c[AB][01]t$/.test(e.target.id || '') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); return; }
   if ((e.target.id === 'rfromt' || e.target.id === 'rtot') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
 });
 document.addEventListener('change', e => {
@@ -2596,7 +2597,17 @@ document.addEventListener('change', e => {
 });
 
 /* ---------- Comparativa de periodos (vista aparte; el informe de siempre no cambia) ---------- */
-let CMP = {on: false, kind: 'mes', ref: curMonth(), vs: 'anterior', accs: 'patrimonio'};
+const _cy = Number(curMonth().slice(0, 4));
+let CMP = {on: false, kind: 'mes', ref: curMonth(), vs: 'anterior', accs: 'patrimonio', a: [(_cy - 1) + '-01-01', (_cy - 1) + '-12-31'], b: [(_cy - 2) + '-01-01', (_cy - 2) + '-12-31']};
+function cmpCur(){ return CMP.kind === 'rango' ? 'A' : CMP.ref; }
+function cmpRangeBars(){
+  const yrs = [...new Set(S.transactions.map(t => t.date.slice(0, 4)))].sort().reverse();
+  const row = (k, title, r) => `<div class="bar" style="flex-wrap:wrap"><span class="t2" style="width:100%;padding-left:2px">${title}</span>` +
+    `<input id="c${k}0t" class="field" placeholder="dd/mm/aaaa" value="${fmtDate(r[0])}" style="margin:0;flex:1;min-width:110px">${calBtn('c' + k + '0', r[0])}<span>→</span>` +
+    `<input id="c${k}1t" class="field" placeholder="dd/mm/aaaa" value="${fmtDate(r[1])}" style="margin:0;flex:1;min-width:110px">${calBtn('c' + k + '1', r[1])}` +
+    `<select id="cmpy${k}" class="field" style="margin:0;flex:0 1 auto"><option value="">Año completo…</option>${yrs.map(y => `<option value="${y}">${y}</option>`).join('')}</select></div>`;
+  return row('A', 'Periodo principal', CMP.a) + row('B', 'Comparar con (la diferencia es principal − este)', CMP.b);
+}
 /* Cuentas que entran en la comparativa: por defecto solo las que suman al patrimonio y no son de inversión
    (las archivadas se mantienen para no perder su historial) */
 function cmpAccOk(a){
@@ -2672,6 +2683,7 @@ document.addEventListener('click', e => {
 }, true);
 function cmpMonthRange(ym){ const [y, m] = ym.split('-').map(Number); return [ym + '-01', ym + '-' + pad(new Date(y, m, 0).getDate())]; }
 function cmpRange(kind, ref){
+  if (kind === 'rango') return ref === 'B' ? CMP.b : CMP.a;
   const [y, m] = ref.split('-').map(Number);
   if (kind === 'mes') return cmpMonthRange(ref);
   if (kind === 'trimestre') { const a = y + '-' + pad(Math.floor((m - 1) / 3) * 3 + 1); return [cmpMonthRange(a)[0], cmpMonthRange(shiftMonth(a, 2))[1]]; }
@@ -2679,12 +2691,13 @@ function cmpRange(kind, ref){
 }
 function cmpShift(kind, ref, n){ return shiftMonth(ref, n * (kind === 'mes' ? 1 : kind === 'trimestre' ? 3 : 12)); }
 function cmpLabel(kind, ref){
+  if (kind === 'rango') { const r = ref === 'B' ? CMP.b : CMP.a, y = r[0].slice(0, 4); return r[0] === y + '-01-01' && r[1] === y + '-12-31' ? y : fmtDate(r[0]) + ' a ' + fmtDate(r[1]); }
   const [y, m] = ref.split('-').map(Number);
   if (kind === 'mes') return monthLabel(ref);
   if (kind === 'trimestre') return Math.floor((m - 1) / 3) + 1 + 'º trimestre ' + y;
   return String(y);
 }
-function cmpPrevRef(){ return CMP.vs === 'anio' ? shiftMonth(CMP.ref, -12) : cmpShift(CMP.kind, CMP.ref, -1); }
+function cmpPrevRef(){ if (CMP.kind === 'rango') return 'B'; return CMP.vs === 'anio' ? shiftMonth(CMP.ref, -12) : cmpShift(CMP.kind, CMP.ref, -1); }
 function cmpData(from, to){
   let list = S.transactions.filter(t => t.date >= from && t.date <= to && !isFuture(t) && t.type !== 'transferencia' && t.type !== 'inversion');
   list = list.filter(t => cmpAccOk(accMap.get(t.account)));
@@ -2704,6 +2717,7 @@ function cmpData(from, to){
 }
 function cmpPct(cur, prev){ return Math.abs(prev) < 0.005 ? null : (cur - prev) / Math.abs(prev) * 100; }
 function cmpShort(kind, ref){
+  if (kind === 'rango') { const r = ref === 'B' ? CMP.b : CMP.a, y = r[0].slice(0, 4); return r[0] === y + '-01-01' && r[1] === y + '-12-31' ? y : fmtDate(r[0]) + '–' + fmtDate(r[1]); }
   const [y, m] = ref.split('-').map(Number);
   if (kind === 'mes') return MES[m - 1].slice(0, 3) + ' ' + String(y).slice(2);
   if (kind === 'trimestre') return (Math.floor((m - 1) / 3) + 1) + 'T ' + String(y).slice(2);
@@ -2728,7 +2742,7 @@ function cmpMerge(gc, gp){
   return [...tops.values()].sort((a, b) => Math.max(b.cur, b.prev) - Math.max(a.cur, a.prev));
 }
 function cmpHead(first){
-  return `<thead><tr><th>${first}</th><th>${esc(cmpShort(CMP.kind, CMP.ref))}</th><th>${esc(cmpShort(CMP.kind, cmpPrevRef()))}</th><th>Diferencia</th></tr></thead>`;
+  return `<thead><tr><th>${first}</th><th>${esc(cmpShort(CMP.kind, cmpCur()))}</th><th>${esc(cmpShort(CMP.kind, cmpPrevRef()))}</th><th>Diferencia</th></tr></thead>`;
 }
 function cmpBlock(title, gc, gp, goodWhenUp){
   const rows = cmpMerge(gc, gp);
@@ -2746,19 +2760,20 @@ function cmpBlock(title, gc, gp, goodWhenUp){
   return h + '</tbody></table></div>';
 }
 function viewCompare(){
-  const [fc, tc] = cmpRange(CMP.kind, CMP.ref);
+  const [fc, tc] = cmpRange(CMP.kind, cmpCur());
   const pref = cmpPrevRef();
   const [fp, tp] = cmpRange(CMP.kind, pref);
   const c = cmpData(fc, tc), p = cmpData(fp, tp);
   const resC = c.inc.total - c.exp.total, resP = p.inc.total - p.exp.total;
   const open = tc >= todayStr() ? ' (en curso: hasta hoy)' : '';
-  let h = `<div class="printonly"><h2 style="margin:8px 12px">Comparativa: ${esc(cmpLabel(CMP.kind, CMP.ref))} frente a ${esc(cmpLabel(CMP.kind, pref))}</h2><p style="margin:0 12px">${esc(fmtDate(fc))} a ${esc(fmtDate(tc))} · ${esc(fmtDate(fp))} a ${esc(fmtDate(tp))} · ${({patrimonio: 'Cuentas del patrimonio sin inversión', todas: 'Todas las cuentas', informe: 'Cuentas elegidas en Informe'})[CMP.accs]}</p></div>`;
-  h += `<div class="noprint"><div class="bar"><select id="cmpkind" class="field" style="margin:0;flex:1"><option value="mes" ${CMP.kind === 'mes' ? 'selected' : ''}>Mes</option><option value="trimestre" ${CMP.kind === 'trimestre' ? 'selected' : ''}>Trimestre</option><option value="anio" ${CMP.kind === 'anio' ? 'selected' : ''}>Año</option></select><select id="cmpvs" class="field" style="margin:0;flex:1.4"><option value="anterior" ${CMP.vs === 'anterior' ? 'selected' : ''}>Con el periodo anterior</option><option value="anio" ${CMP.vs === 'anio' ? 'selected' : ''}>Con el año pasado</option></select></div>`;
-  h += `<div class="bar"><button class="btn" data-cmpnav="-1">‹</button><div class="month">${esc(cmpLabel(CMP.kind, CMP.ref))}${esc(open)}</div><button class="btn" data-cmpnav="1">›</button></div>`;
+  let h = `<div class="printonly"><h2 style="margin:8px 12px">Comparativa: ${esc(cmpLabel(CMP.kind, cmpCur()))} frente a ${esc(cmpLabel(CMP.kind, pref))}</h2><p style="margin:0 12px">${esc(fmtDate(fc))} a ${esc(fmtDate(tc))} · ${esc(fmtDate(fp))} a ${esc(fmtDate(tp))} · ${({patrimonio: 'Cuentas del patrimonio sin inversión', todas: 'Todas las cuentas', informe: 'Cuentas elegidas en Informe'})[CMP.accs]}</p></div>`;
+  h += `<div class="noprint"><div class="bar"><select id="cmpkind" class="field" style="margin:0;flex:1"><option value="mes" ${CMP.kind === 'mes' ? 'selected' : ''}>Mes</option><option value="trimestre" ${CMP.kind === 'trimestre' ? 'selected' : ''}>Trimestre</option><option value="anio" ${CMP.kind === 'anio' ? 'selected' : ''}>Año</option><option value="rango" ${CMP.kind === 'rango' ? 'selected' : ''}>Fechas libres</option></select>${CMP.kind === 'rango' ? '' : `<select id="cmpvs" class="field" style="margin:0;flex:1.4"><option value="anterior" ${CMP.vs === 'anterior' ? 'selected' : ''}>Con el periodo anterior</option><option value="anio" ${CMP.vs === 'anio' ? 'selected' : ''}>Con el año pasado</option></select>`}</div>`;
+  if (CMP.kind === 'rango') h += cmpRangeBars();
+  else h += `<div class="bar"><button class="btn" data-cmpnav="-1">‹</button><div class="month">${esc(cmpLabel(CMP.kind, cmpCur()))}${esc(open)}</div><button class="btn" data-cmpnav="1">›</button></div>`;
   h += `<div class="bar"><select id="cmpaccs" class="field" style="margin:0;flex:1"><option value="patrimonio" ${CMP.accs === 'patrimonio' ? 'selected' : ''}>Cuentas del patrimonio (sin inversión)</option><option value="todas" ${CMP.accs === 'todas' ? 'selected' : ''}>Todas las cuentas</option><option value="informe" ${CMP.accs === 'informe' ? 'selected' : ''}>Las elegidas en Informe</option></select></div>`;
   h += `<div class="bar" style="justify-content:space-between"><span class="t2" style="padding-left:14px">Frente a ${esc(cmpLabel(CMP.kind, pref))} · ${S.accounts.filter(cmpAccOk).length} de ${S.accounts.length} cuentas</span><button class="btn" data-act="pdf">Exportar PDF</button></div></div>`;
   const hr = (l, a, b, good) => `<tr><td>${l}</td><td><b>${cmpNum(a)}</b></td><td>${cmpNum(b)}</td><td>${cmpDiffCell(a, b, good, true)}</td></tr>`;
-  h += `<div class="hero cmphero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><table class="cmpt cmph"><thead><tr><th></th><th>${esc(cmpShort(CMP.kind, CMP.ref))}</th><th>${esc(cmpShort(CMP.kind, pref))}</th><th>Diferencia</th></tr></thead><tbody>${hr('Ingresos', c.inc.total, p.inc.total, true)}${hr('Gastos', c.exp.total, p.exp.total, false)}${hr('Ahorro', resC, resP, true)}</tbody></table></div>`;
+  h += `<div class="hero cmphero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><table class="cmpt cmph"><thead><tr><th></th><th>${esc(cmpShort(CMP.kind, cmpCur()))}</th><th>${esc(cmpShort(CMP.kind, pref))}</th><th>Diferencia</th></tr></thead><tbody>${hr('Ingresos', c.inc.total, p.inc.total, true)}${hr('Gastos', c.exp.total, p.exp.total, false)}${hr('Ahorro', resC, resP, true)}</tbody></table></div>`;
   const big = cmpMerge(c.exp, p.exp).map(X => ({name: X.name, d: X.cur - X.prev})).filter(x => Math.abs(x.d) >= 0.005);
   const up = big.filter(x => x.d > 0).sort((a, b) => b.d - a.d).slice(0, 3), down = big.filter(x => x.d < 0).sort((a, b) => a.d - b.d).slice(0, 3);
   if (up.length || down.length) h += `<div class="sec"><span>Lo que más ha cambiado en gastos</span></div><div class="card" style="padding:6px 14px">${up.map(x => `<div class="rr cmprow" style="display:flex;justify-content:space-between;padding:4px 0"><span>▲ ${esc(x.name)}</span><span class="neg">+${cmpNum(x.d)} €</span></div>`).join('')}${down.map(x => `<div class="rr cmprow" style="display:flex;justify-content:space-between;padding:4px 0"><span>▼ ${esc(x.name)}</span><span class="pos">${cmpNum(x.d)} €</span></div>`).join('')}</div>`;
@@ -2783,6 +2798,23 @@ document.addEventListener('change', e => {
   if (el.id === 'cmpkind') { CMP.kind = el.value; render(); }
   else if (el.id === 'cmpvs') { CMP.vs = el.value; render(); }
   else if (el.id === 'cmpaccs') { CMP.accs = el.value; render(); }
+  else if (el.id === 'cmpyA' || el.id === 'cmpyB') {
+    const y = el.value; if (!y) return;
+    if (el.id === 'cmpyA') CMP.a = [y + '-01-01', y + '-12-31']; else CMP.b = [y + '-01-01', y + '-12-31'];
+    render();
+  }
+  else {
+    const m = el.id && el.id.match(/^c([AB])([01])(t?)$/);
+    if (m) {
+      const tgt = m[1] === 'A' ? CMP.a : CMP.b, i = Number(m[2]);
+      const v = m[3] ? parseTypedDate(el.value) : el.value;
+      if (m[3] && !v) { alert('Fecha no válida. Escríbela como dd/mm/aaaa'); render(); return; }
+      if (!v) { render(); return; }
+      tgt[i] = v;
+      if (tgt[0] > tgt[1]) { const t = tgt[0]; tgt[0] = tgt[1]; tgt[1] = t; }
+      render();
+    }
+  }
 });
 
 lpEnhance();
