@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Mis finanzas</title>
 <meta name="apple-mobile-web-app-title" content="Finanzas">
 <meta name="theme-color" content="#0b3a8f">
@@ -165,6 +166,30 @@ button.field.lpb{border:0;display:block;text-align:left}
 .dct th:last-child,.dct td:last-child{padding-right:10px}
 .dct tr.t td{font-weight:700;border-top:2px solid var(--sep)}
 @media (min-width:760px){.dhead .dv{font-size:28px}}
+
+/* Aspecto de programa */
+html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,select,[contenteditable]{-webkit-user-select:text;user-select:text}
+img{-webkit-user-drag:none;user-drag:none}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--sep);border-radius:6px;border:2px solid var(--bg)}::-webkit-scrollbar-track{background:transparent}
+@media(min-width:900px){
+ body{padding-left:210px;padding-bottom:0}
+ nav.tabs{top:0;right:auto;bottom:auto;width:210px;flex-direction:column;justify-content:flex-start;padding:14px 8px;border-top:0;border-right:1px solid var(--sep)}
+ nav.tabs button{flex:none;flex-direction:row;gap:12px;font-size:15px;padding:11px 14px;border-top:0;border-radius:10px;margin:0 0 2px;text-align:left}
+ nav.tabs button.on{border-top-color:transparent}
+ #ov,#pk,#lp{align-items:center}
+ #pkbox,#lpbox{height:82vh;border-radius:16px}
+ #sheet{border-radius:16px}
+}
+#uidlg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+#uidlg .b{background:var(--card);color:var(--text);width:100%;max-width:380px;border-radius:16px;padding:20px 18px 14px;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+#uidlg h3{margin:0 0 8px;font-size:17px}
+#uidlg p{margin:0 0 12px;font-size:15px;white-space:pre-wrap;color:var(--text)}
+#uidlg input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--sep);background:var(--bg);color:var(--text);margin-bottom:12px}
+#uidlg .r{display:flex;justify-content:flex-end;gap:8px}
+#uidlg button{font:inherit;font-size:15px;padding:9px 16px;border-radius:10px;border:0;background:var(--bg);color:var(--accent);cursor:pointer}
+#uidlg button.ok{background:var(--accent);color:#fff;font-weight:600}
 </style>
 </head>
 <body>
@@ -205,6 +230,27 @@ button.field.lpb{border:0;display:block;text-align:left}
 <div id="ov"><div id="sheet"></div></div>
 <input type="file" id="fileIn" accept="application/json,.json" class="hide"><input type="file" id="replaceIn" accept="application/json,.json" class="hide">
 
+<script>
+function uiDialog(o){return new Promise(function(res){
+  var old=document.getElementById('uidlg'); if(old) old.remove();
+  var w=document.createElement('div'); w.id='uidlg';
+  w.innerHTML='<div class="b" role="dialog"><h3></h3><p></p><input type="text" style="display:none"><div class="r"></div></div>';
+  var t=w.querySelector('h3'),p=w.querySelector('p'),inp=w.querySelector('input'),r=w.querySelector('.r');
+  t.textContent=o.title||'Mis finanzas'; p.textContent=o.msg||''; if(!o.msg) p.remove();
+  if(o.input){inp.style.display='block';inp.value=o.def||'';}
+  function done(v){document.removeEventListener('keydown',key,true);w.remove();res(v);}
+  function okv(){return o.input?inp.value:true;}
+  function key(e){if(e.key==='Escape'){e.preventDefault();done(o.input?null:false);}else if(e.key==='Enter'){e.preventDefault();done(okv());}}
+  if(o.cancel!==null){var c=document.createElement('button');c.textContent=o.cancel||'Cancelar';c.onclick=function(){done(o.input?null:false)};r.appendChild(c);}
+  var b=document.createElement('button');b.className='ok';b.textContent=o.ok||'Aceptar';b.onclick=function(){done(okv())};r.appendChild(b);
+  w.addEventListener('mousedown',function(e){if(e.target===w&&o.cancel!==null)done(o.input?null:false)});
+  document.addEventListener('keydown',key,true);
+  document.body.appendChild(w); if(o.input){inp.focus();inp.select();}else b.focus();
+});}
+function uiPrompt(msg,def,title,ok){return uiDialog({msg:msg,input:true,def:def,title:title,ok:ok||'Aceptar'});}
+function uiConfirm(msg,title,ok){return uiDialog({msg:msg,title:title,ok:ok||'Aceptar'});}
+window.alert=function(msg){uiDialog({msg:String(msg),cancel:null});};
+</script>
 <script>
 const SEED = null;
 
@@ -355,10 +401,10 @@ function loadState(){
   if (SEED && valid(SEED)) return JSON.parse(JSON.stringify(SEED));
   return {version:1,dataVersion:DATA_VERSION,accounts:[],categories:[],transactions:[],holdings:[],accountOrder:[],reports:[],mintosSnapshots:[],deleted:{},touched:{}};
 }
-function restoreBackup(){
+async function restoreBackup(){
   const raw = localStorage.getItem(KEY + '-antes-fusion') || localStorage.getItem(KEY + '-anterior');
   if (!raw) { alert('No hay copia anterior guardada en este navegador.'); return; }
-  if (!confirm('Volver a la copia anterior a la última fusión o importación. ¿Continuar?')) return;
+  if (!await uiConfirm('Volver a la copia anterior a la última fusión o importación. ¿Continuar?')) return;
   S = JSON.parse(raw); reindex(); save(); render();
 }
 /* Las copias de seguridad ocupan tanto como los datos (~2 MB cada una) y el límite de localStorage es ~5 MB.
@@ -566,12 +612,12 @@ function selCatApply(){
   S.transactions.forEach(t => { if (SEL.has(t.id) && t.type !== 'transferencia') { t.category = cat; t.splits = null; touch('tx', t.id); } });
   SEL.clear(); save(); closeForm(); reindex(); render();
 }
-function selDelete(){
+async function selDelete(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
   const ids = new Set(SEL);
   S.transactions.forEach(t => { if (ids.has(t.id) && t.pair != null) ids.add(t.pair); });
   ids.forEach(i => gone('tx', i));
-  if (!confirm('¿Eliminar ' + SEL.size + ' apuntes? Los reembolsos de gastos eliminados quedarán como ingresos sueltos.')) return;
+  if (!await uiConfirm('¿Eliminar ' + SEL.size + ' apuntes? Los reembolsos de gastos eliminados quedarán como ingresos sueltos.')) return;
   S.transactions.forEach(t => { if (t.refundOf != null && ids.has(t.refundOf)) t.refundOf = null; });
   S.transactions = S.transactions.filter(t => !ids.has(t.id));
   SEL.clear(); reindex(); save(); render();
@@ -1393,7 +1439,7 @@ function removeOriginal(){
   ids.forEach(i => gone('tx', i));
   S.transactions = S.transactions.filter(t => !ids.has(t.id));
 }
-function saveForm(){
+async function saveForm(){
   const amt = moneyDigits($('#f_amt').value);
   if (!amt) { alert('Introduce un importe'); return; }
   const date = $('#f_date').value;
@@ -1420,11 +1466,11 @@ function saveForm(){
     const ex = refId != null ? txMap.get(refId) : null;
     if (!ex || ex.type !== 'gasto') { alert('Elige el gasto al que corresponde el reembolso de la lista'); return; }
     const already = refundsOf(refId).filter(r => !orig || r.id !== orig.id).reduce((s,r) => s + r.amount, 0);
-    if (already + amt > Math.abs(ex.amount) + 0.005 && !confirm('Los reembolsos de ese gasto superarían su importe. ¿Guardar igualmente?')) return;
+    if (already + amt > Math.abs(ex.amount) + 0.005 && !await uiConfirm('Los reembolsos de ese gasto superarían su importe. ¿Guardar igualmente?')) return;
   }
   if (FK === 'gasto' && orig && orig.type === 'gasto') {
     const sumRef = refundsOf(orig.id).reduce((s,r) => s + r.amount, 0);
-    if (sumRef > amt + 0.005 && !confirm('Este gasto ya tiene reembolsos por ' + money(sumRef) + ', más que el nuevo importe. ¿Guardar igualmente?')) return;
+    if (sumRef > amt + 0.005 && !await uiConfirm('Este gasto ya tiene reembolsos por ' + money(sumRef) + ', más que el nuevo importe. ¿Guardar igualmente?')) return;
   }
   const keepId = orig && !tr && orig.type !== 'transferencia' ? orig.id : null;
   removeOriginal();
@@ -1443,10 +1489,10 @@ function saveForm(){
   }
   reindex(); save(); closeForm(); render();
 }
-function deleteTx(){
+async function deleteTx(){
   if (FID == null) return;
   const n = refundsOf(FID).length;
-  if (!confirm('¿Eliminar este movimiento?' + (n ? ' Sus ' + n + ' reembolsos quedarán como ingresos sueltos.' : ''))) return;
+  if (!await uiConfirm('¿Eliminar este movimiento?' + (n ? ' Sus ' + n + ' reembolsos quedarán como ingresos sueltos.' : ''))) return;
   S.transactions.forEach(t => { if (t.refundOf === FID) t.refundOf = null; });
   removeOriginal(); reindex(); save(); closeForm(); render();
 }
@@ -1652,11 +1698,11 @@ function saveCat(){
   }
   reindex(); save(); closeForm(); render();
 }
-function deleteCat(){
+async function deleteCat(){
   const c = catMap.get(FCAT); if (!c) return;
   const kids = S.categories.filter(x => x.parent === c.id);
   const used = countUse(c.id);
-  if (!confirm('¿Eliminar "' + c.name + '"? ' + used + ' movimientos quedarán sin categoría' + (kids.length ? ' y sus subcategorías pasarán a ser principales' : '') + '.')) return;
+  if (!await uiConfirm('¿Eliminar "' + c.name + '"? ' + used + ' movimientos quedarán sin categoría' + (kids.length ? ' y sus subcategorías pasarán a ser principales' : '') + '.')) return;
   S.transactions.forEach(t => {
     if (t.category === c.id) t.category = null;
     (t.splits || []).forEach(s => { if (s.category === c.id) s.category = null; });
@@ -1792,10 +1838,10 @@ async function updatePrices(manual){
   render();
   if (manual) { try { window.scrollTo(0, document.body.scrollHeight); } catch(e) {} }
 }
-function editPrice(id){
+async function editPrice(id){
   const h = (S.holdings || []).find(x => x.id === id);
   if (!h) return;
-  const v = prompt('Precio actual de ' + h.name + ' (€ por acción)', String(h.price).replace('.', ','));
+  const v = await uiPrompt('Precio actual de ' + h.name + ' (€ por acción)', String(h.price).replace('.', ','));
   if (v == null) return;
   const p = parseFloat(v.replace(',', '.'));
   if (!(p > 0)) { alert('Precio no válido'); return; }
@@ -1891,9 +1937,9 @@ function mergeData(inc){
   reindex();
   return st;
 }
-function mergeImport(inc){
+async function mergeImport(inc){
   if (!valid(inc)) { alert('El archivo no es una copia válida de esta app.'); return; }
-  if (!confirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
+  if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
   setBackup(KEY + '-antes-fusion', JSON.stringify(S));
   const st = mergeData(inc); save(); closeForm(); render();
   alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.`);
@@ -1958,19 +2004,19 @@ function toggleRepCat(id){
 function reportState(name){
   return {name, mode: R.mode, from: R.from, to: R.to, month: f.month, q: R.q, tipo: R.tipo, view: R.view, excl: [...R.excl], cats: [...R.cats]};
 }
-function saveReportAs(){
-  let name = prompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '');
+async function saveReportAs(){
+  let name = uiPrompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '', 'Guardar informe como', 'Guardar');
   while (name && name.trim()) {
     name = name.trim();
     const dup = (S.reports || []).find(r => nrm(r.name) === nrm(name));
     if (!dup) break;
-    if (confirm(`Ya existe un informe llamado «${dup.name}».\n\nAceptar: reemplazarlo.\nCancelar: darle otro nombre.`)) {
+    if (await uiConfirm(`Ya existe un informe llamado «${dup.name}».\n\nAceptar: reemplazarlo.\nCancelar: darle otro nombre.`)) {
       Object.assign(dup, reportState(name));
       touch('rep', dup.id); save(); render();
       alert('Informe reemplazado: ' + name);
       return;
     }
-    name = prompt('Elige otro nombre para el informe', name);
+    name = await uiPrompt('Elige otro nombre para el informe', name);
   }
   if (!name || !name.trim()) return;
   name = name.trim();
@@ -1987,8 +2033,8 @@ function applyReport(id){
   R.excl = new Set(r.excl || []); R.cats = new Set(r.cats || []);
   persistRep(); closeForm(); render();
 }
-function deleteReport(id){
-  if (!confirm('¿Borrar este informe guardado?')) return;
+async function deleteReport(id){
+  if (!await uiConfirm('¿Borrar este informe guardado?')) return;
   S.reports = (S.reports || []).filter(r => r.id !== id); gone('rep', id);
   save(); openSavedReports(); render();
 }
@@ -2026,10 +2072,10 @@ function mergeCatTo(from, to){
   reindex(); save();
   return true;
 }
-function mergeCatNow(){
+async function mergeCatNow(){
   const from = FCAT, to = Number(($('#c_into') || {}).value) || null;
   if (from == null || to == null || from === to) { alert('Elige otra categoría a la que fusionar'); return; }
-  if (!confirm(`¿Fusionar «${catLabel(from)}» en «${catLabel(to)}»? Sus movimientos pasan a la otra categoría y esta se elimina.`)) return;
+  if (!await uiConfirm(`¿Fusionar «${catLabel(from)}» en «${catLabel(to)}»? Sus movimientos pasan a la otra categoría y esta se elimina.`)) return;
   mergeCatTo(from, to); closeForm(); render();
 }
 
@@ -2123,7 +2169,7 @@ async function importBankFile(file){
   } catch (e) { alert('No se ha podido leer el extracto: ' + e.message); return; }
   if (!movs.length) { alert('No he encontrado movimientos en ese archivo.'); return; }
   const accs = S.accounts.filter(a => !a.archived);
-  const pick = prompt('¿A qué cuenta corresponde este extracto? Escribe el número:\n' + accs.map((a, i) => (i + 1) + '. ' + a.name).join('\n'));
+  const pick = await uiPrompt('¿A qué cuenta corresponde este extracto? Escribe el número:\n' + accs.map((a, i) => (i + 1) + '. ' + a.name).join('\n'));
   const acc = accs[Number(pick) - 1];
   if (!acc) return;
   const existing = S.transactions.filter(t => t.account === acc.id);
@@ -2157,7 +2203,7 @@ async function importBankFile(file){
   });
   if (!add.length) { alert('No hay movimientos nuevos en ' + acc.name + '. ' + skipped + ' ya estaban.'); return; }
   const warn = transfers ? '\n\nOjo: ' + transfers + ' parecen traspasos entre cuentas; revísalos por si cuentan dos veces.' : '';
-  if (!confirm('Se añadirán ' + add.length + ' movimientos nuevos a ' + acc.name + ' y se omitirán ' + skipped + ' que ya estaban. Se conservan sus categorías.' + warn + '\n\n¿Continuar?')) return;
+  if (!await uiConfirm('Se añadirán ' + add.length + ' movimientos nuevos a ' + acc.name + ' y se omitirán ' + skipped + ' que ya estaban. Se conservan sus categorías.' + warn + '\n\n¿Continuar?')) return;
   setBackup(KEY + '-antes-importar', JSON.stringify(S));
   let nid = S.transactions.reduce((mx, t) => Math.max(mx, t.id), 0) + 1;
   add.forEach(m => {
@@ -2171,7 +2217,7 @@ function stampNow(){ const n = new Date(); return n.getFullYear() + pad(n.getMon
 function exportData(){
   download(new Blob([JSON.stringify(S)], {type:'application/json'}), 'mis-finanzas-' + stampNow() + '.json');
 }
-function exportHtmlCopy(){
+async function exportHtmlCopy(){
   const stamp = stampNow();
   const copy = Object.assign({}, JSON.parse(JSON.stringify(S)), {exportedAt: stamp});
   const json = JSON.stringify(copy).replace(/</g, '\\u003c');
@@ -2199,10 +2245,10 @@ $('#fileIn').addEventListener('change', e => {
 $('#replaceIn').addEventListener('change', e => {
   const file = e.target.files[0]; if (!file) return;
   const r = new FileReader();
-  r.onload = () => {
+  r.onload = async () => {
     let obj = null; try { obj = JSON.parse(r.result); } catch(err) {}
     if (!valid(obj)) { alert('El archivo no es una copia válida de esta app. No se ha cambiado ningún dato.'); e.target.value=''; return; }
-    if (!confirm('ATENCIÓN: se sustituirán TODOS los datos actuales de este dispositivo por los del archivo. No se conservará ninguna cuenta, movimiento, categoría, presupuesto, inversión ni ajuste que no esté en ese archivo. Se guardará una copia recuperable del estado actual antes de continuar. ¿Quieres reemplazarlo todo?')) { e.target.value=''; return; }
+    if (!await uiConfirm('ATENCIÓN: se sustituirán TODOS los datos actuales de este dispositivo por los del archivo. No se conservará ninguna cuenta, movimiento, categoría, presupuesto, inversión ni ajuste que no esté en ese archivo. Se guardará una copia recuperable del estado actual antes de continuar. ¿Quieres reemplazarlo todo?')) { e.target.value=''; return; }
     try {
       const hadBackup = setBackup(KEY + '-antes-fusion', JSON.stringify(S));
       S = JSON.parse(JSON.stringify(obj));
@@ -2381,7 +2427,7 @@ function mintosView(){
   <div class="sec">Histórico de lecturas</div><div class="card">${history||'<div class="empty">Todavía no hay lecturas</div>'}</div>
   <div class="banner">Introduce manualmente las cifras tal como aparecen en la aplicación de Mintos. Al actualizar, los campos se rellenan con los últimos valores guardados y se conserva cada lectura por fecha.</div>`;
 }
-function saveMintosSnapshot(){
+async function saveMintosSnapshot(){
   const date = document.getElementById('mi_date')?.value;
   if (!date) { alert('Indica la fecha de la lectura.'); return; }
   const snap = {date};
@@ -2392,7 +2438,7 @@ function saveMintosSnapshot(){
     snap[k]=Math.round(n*100)/100;
   }
   const arr=mintosSnapshots(), idx=arr.findIndex(x=>x.date===date);
-  if (idx>=0) { if (!confirm('Ya existe una lectura de esa fecha. ¿Quieres sustituirla?')) return; arr[idx]=snap; }
+  if (idx>=0) { if (!await uiConfirm('Ya existe una lectura de esa fecha. ¿Quieres sustituirla?')) return; arr[idx]=snap; }
   else arr.push(snap);
   arr.sort((a,b)=>a.date.localeCompare(b.date));
   mintosEditing = false;
@@ -2801,10 +2847,10 @@ function tpRender(){
       : `<div class="empty">No he encontrado parejas de apuntes sin categoría con el mismo importe y signo contrario en cuentas distintas.</div>`) +
     `<div class="empty">Busca un gasto y un ingreso sin categoría del mismo importe, en cuentas distintas y con hasta 7 días de diferencia${f.range ? ' (dentro del periodo filtrado)' : ''}. Desmarca los que no sean traspasos. Al convertir, dejan de contar como ingreso y gasto. Puedes deshacerlo en Ajustes → «Volver a la copia anterior».</div><div style="height:28px"></div>`;
 }
-function tpApply(){
+async function tpApply(){
   const sel = TP.filter(x => x.on);
   if (!sel.length) return;
-  if (!confirm('Se convertirán ' + sel.length + ' parejas en transferencias entre tus cuentas (' + money(sel.reduce((s, x) => s + Math.abs(x.neg.amount), 0)) + '). Antes se guarda una copia. ¿Continuar?')) return;
+  if (!await uiConfirm('Se convertirán ' + sel.length + ' parejas en transferencias entre tus cuentas (' + money(sel.reduce((s, x) => s + Math.abs(x.neg.amount), 0)) + '). Antes se guarda una copia. ¿Continuar?')) return;
   setBackup(KEY + '-antes-fusion', JSON.stringify(S));
   sel.forEach(x => {
     const n = x.neg, p = x.pos;
