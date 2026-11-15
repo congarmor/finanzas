@@ -153,17 +153,16 @@ button.field.lpb{border:0;display:block;text-align:left}
 .dsvg{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
 .dsvg text{fill:var(--muted);font-size:10px}
 .dsvg .lb{font-weight:700;paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
-.dcat{margin:0 12px 10px;padding:4px 0 6px}
-.dct{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
-.dct th{font-size:12px;text-align:right;padding:8px 10px 6px;font-weight:700;text-transform:capitalize;white-space:nowrap}
-.dct th:first-child{text-align:left;color:var(--muted);text-transform:none;font-weight:600;padding-left:12px}
-.dct td{padding:6px 10px;text-align:right;border-top:1px solid var(--sep);white-space:nowrap}
-.dct td:first-child{text-align:left;white-space:normal;padding-left:12px;word-break:break-word}
+.dcat{margin:0 8px 10px;padding:4px 0 6px}
+.dct{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.dct th{font-size:12px;text-align:right;padding:8px 6px 6px;font-weight:700;text-transform:capitalize;white-space:nowrap}
+.dct th:first-child{text-align:left;color:var(--muted);text-transform:none;font-weight:600;padding-left:10px}
+.dct td{padding:6px 6px;text-align:right;border-top:1px solid var(--sep);white-space:nowrap}
+.dct td:first-child{text-align:left;white-space:normal;padding-left:10px;padding-right:2px;word-break:break-word}
 .dct td.z{color:var(--muted)}
-.dct td.neg{color:var(--neg);font-weight:600}.dct td.pos{color:var(--pos);font-weight:600}
-.dct th:nth-child(3),.dct td:nth-child(3){padding-right:10px}
-.dct th:not(:first-child),.dct td:not(:first-child){width:1%;padding-left:6px;padding-right:12px}
-.dct th:nth-child(2),.dct td:nth-child(2){padding-right:14px}
+.dct td.neg{color:var(--neg);font-weight:600;font-size:11.5px}.dct td.pos{color:var(--pos);font-weight:600;font-size:11.5px}
+.dct th:not(:first-child),.dct td:not(:first-child){width:1%;padding-left:3px;padding-right:6px}
+.dct th:last-child,.dct td:last-child{padding-right:10px}
 .dct tr.t td{font-weight:700;border-top:2px solid var(--sep)}
 @media (min-width:760px){.dhead .dv{font-size:28px}}
 </style>
@@ -2429,7 +2428,7 @@ function dashHead(D, isCur){
     `<button class="dlink" data-dashrep="${D.ym}">Ver informe completo ›</button></div></section>`;
 }
 function dashChart(C, P, dayNow){
-  const W = 360, H = 190, pl = 8, pr = 74, pt = 40, pb = 20;
+  const W = 360, H = 205, pl = 8, pr = 16, pt = 40, pb = 36;
   const maxDays = Math.max(C.nd, P.nd);
   const ci = Math.min(dayNow, C.nd) - 1;
   const cEnd = C.cum[ci] || 0, pEnd = P.cum[P.nd - 1] || 0;
@@ -2444,6 +2443,9 @@ function dashChart(C, P, dayNow){
   const gx = `gradientUnits="userSpaceOnUse" x1="${pl}" x2="${W - pr}" y1="0" y2="0"`;
   const xc = Math.min(Math.max(X(ci + 1), 34), W - pr - 10), yc = Y(cEnd);
   const xp = X(P.nd), yp = Y(pEnd);
+  const pi = Math.min(dayNow, P.nd) - 1, pSame = P.cum[pi] || 0, xs = X(pi + 1), ys = Y(pSame);
+  const curAbove = cEnd >= pSame;
+  const lab = (x, y, a, b, col, above, anc) => { const y1 = above ? y - 20 : y + 14, y2 = above ? y - 8 : y + 26; return `<text class="lb" x="${x}" y="${y1}" text-anchor="${anc}" style="fill:${col}">${esc(a)}</text><text class="lb" x="${x}" y="${y2}" text-anchor="${anc}" style="fill:${col}">${esc(b)}</text>`; };
   return `<svg class="dsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gasto acumulado por día">` +
     `<defs><linearGradient id="gC" ${gx}><stop offset="0" stop-color="${cc[0]}"/><stop offset="1" stop-color="${cc[1]}"/></linearGradient><linearGradient id="gP" ${gx}><stop offset="0" stop-color="${pc[0]}"/><stop offset="1" stop-color="${pc[1]}"/></linearGradient></defs>` +
     `<line x1="${pl}" x2="${W - pr}" y1="${H - pb}" y2="${H - pb}" stroke="var(--sep)"/>` +
@@ -2455,10 +2457,11 @@ function dashChart(C, P, dayNow){
     `<path d="${cl}" fill="none" stroke="url(#gC)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
     `<circle cx="${X(ci + 1)}" cy="${yc}" r="4.5" fill="${cc[1]}" stroke="var(--card)" stroke-width="2"/>` +
     `<circle cx="${xp}" cy="${yp}" r="3.5" fill="${pc[1]}" stroke="var(--card)" stroke-width="2"/>` +
-    `<text class="lb" x="${xc}" y="${yc - 20}" text-anchor="middle" style="fill:${cc[0]}">${esc(dashShort(C.ym))}</text>` +
-    `<text class="lb" x="${xc}" y="${yc - 8}" text-anchor="middle" style="fill:${cc[0]}">${money(cEnd)}</text>` +
-    `<text class="lb" x="${xp + 7}" y="${yp - 2}" style="fill:${pc[0]}">${esc(dashShort(P.ym))}</text>` +
-    `<text class="lb" x="${xp + 7}" y="${yp + 10}" style="fill:${pc[0]}">${money(pEnd)}</text></svg>`;
+    `<line x1="${xs}" x2="${xs}" y1="${pt - 4}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 3" opacity=".6"/>` +
+    `<circle cx="${xs}" cy="${ys}" r="4.5" fill="var(--card)" stroke="${pc[0]}" stroke-width="2.5"/>` +
+    lab(xc, yc, dashShort(C.ym) + ' ' + dayNow, money(cEnd), cc[0], curAbove, 'middle') +
+    lab(Math.min(Math.max(xs, 34), W - pr - 10), ys, dashShort(P.ym) + ' ' + (pi + 1), money(pSame), pc[0], !curAbove, 'middle') +
+    lab(xp + 4, yp, dashShort(P.ym) + ' ' + P.nd, money(pEnd), pc[0], true, 'end') + '</svg>';
 }
 function dashCats(C, P){
   const rows = new Map();
