@@ -1301,7 +1301,7 @@ function recentCats(){
 }
 function pkRow(id, label, sub, sel, indent){
   const ci = id != null ? catIconOf(id) : null;
-  return `<div class="pkr${id === sel ? ' on' : ''}" data-pk="${id == null ? '' : id}" style="padding-left:${14 + indent * 16}px"><span class="pki" style="${ci ? icStyle(id) : 'background:var(--bg)'}">${ci || '∅'}</span><span class="pkt">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${id === sel ? '<span style="color:var(--accent)">✓</span>' : ''}</div>`;
+  return `<div class="pkr${id === sel ? ' on' : ''}" data-pk="${id == null ? '' : id}" style="padding-left:${14 + indent * 16}px"><span class="pki" style="${ci ? icStyle(id) : 'background:var(--bg)'}">${ci || '∅'}</span><span class="pkt">${sub ? `<span style="color:var(--muted)">${esc(sub)} › </span><strong>${esc(label)}</strong>` : esc(label)}</span>${id === sel ? '<span style="color:var(--accent)">✓</span>' : ''}</div>`;
 }
 function pkList(q){
   const sel = PK ? PK.sel : null;
@@ -1319,7 +1319,8 @@ function pkList(q){
   }
   const rec = allow ? [] : recentCats();
   if (rec.length) h += '<div class="pkh">Recientes</div>' + rec.map(id => { const p = catLabel(id).split(' › '); return pkRow(id, p[p.length - 1], p.length > 1 ? p.slice(0, -1).join(' › ') : '', sel, 0); }).join('');
-  h += '<div class="pkh">Todas</div>' + all.map(c => pkRow(c.id, c.name, '', sel, c.depth)).join('');
+  if (sel != null && catMap.has(sel)) { const p = catLabel(sel).split(' › '); h += '<div class="pkh">Categoría actual</div>' + pkRow(sel, p[p.length - 1], p.length > 1 ? p.slice(0, -1).join(' › ') : '', sel, 0); }
+  h += '<div class="pkh">Todas</div>' + all.map(c => { const p = c.path.split(' › '); return pkRow(c.id, c.name, p.length > 1 ? p.slice(0, -1).join(' › ') : '', sel, c.depth); }).join('');
   return h;
 }
 function pkOpen(sel, cb, o){
@@ -1328,7 +1329,7 @@ function pkOpen(sel, cb, o){
   if (!el) { el = document.createElement('div'); el.id = 'pk'; document.body.appendChild(el); }
   el.innerHTML = `<div id="pkbox"><div class="hd"><button class="btn" data-pkx="1">Cancelar</button><strong>${esc((PK.o && PK.o.title) || 'Categoría')}</strong><span style="width:72px"></span></div><div style="padding:6px 0"><input id="pkq" class="field" type="search" placeholder="Buscar categoría…" autocomplete="off" autocapitalize="off" style="margin:0 12px;width:calc(100% - 24px);font-size:16px"></div><div id="pkl">${pkList('')}</div></div>`;
   el.classList.add('on');
-  setTimeout(() => { const i = document.getElementById('pkq'); if (i) i.focus(); }, 60);
+  setTimeout(() => { const i = document.getElementById('pkq'); if (i) i.focus(); const on = el.querySelectorAll('#pkl .pkr.on'); if (on.length) on[on.length - 1].scrollIntoView({block: 'center'}); }, 60);
 }
 function pkNewForm(){
   if (!PK) return;
