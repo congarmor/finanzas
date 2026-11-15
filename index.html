@@ -134,6 +134,38 @@ button.field.lpb{border:0;display:block;text-align:left}
 .rc-tile{padding:12px;margin:0!important;display:flex;flex-direction:column;gap:8px;cursor:pointer}
 .rc-subs{grid-column:1/-1;margin:0!important}
 @media (max-width:360px){.rc-grid{grid-template-columns:1fr}}
+
+/* Panel de inicio */
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 12px}
+.dcard{background:var(--card);border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.dhead{padding:12px 13px 11px;color:#fff;height:100%}
+.dhead .dm{font-weight:700;font-size:14px;text-transform:capitalize}
+.dhead .dsub{font-size:11px;opacity:.85}
+.dhead .dv{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 1px;letter-spacing:-.3px;white-space:nowrap}
+.dhead .ds{font-size:11px;opacity:.9;min-height:14px}
+.dkr{display:flex;justify-content:space-between;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px;gap:6px}
+.dkr span{opacity:.85}.dkr b{white-space:nowrap}
+.dlink{display:block;width:100%;margin-top:9px;border:0;background:rgba(255,255,255,.2);color:#fff;font:inherit;font-size:12px;font-weight:600;padding:6px 0;border-radius:14px;cursor:pointer}
+.dwide{margin:0 12px 10px;padding:12px 12px 8px}
+.dwide h3{margin:0 0 2px 4px;font-size:15px}
+.dchip{display:inline-block;margin:4px 0 0 4px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:20px}
+.dchip.neg{background:rgba(255,69,58,.14)}.dchip.pos{background:rgba(48,209,88,.16)}
+.dsvg{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
+.dsvg text{fill:var(--muted);font-size:10px}
+.dsvg .lb{font-weight:700;paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
+.dcat{margin:0 12px 10px;padding:4px 0 6px}
+.dct{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.dct th{font-size:12px;text-align:right;padding:8px 10px 6px;font-weight:700;text-transform:capitalize;white-space:nowrap}
+.dct th:first-child{text-align:left;color:var(--muted);text-transform:none;font-weight:600;padding-left:12px}
+.dct td{padding:6px 10px;text-align:right;border-top:1px solid var(--sep);white-space:nowrap}
+.dct td:first-child{text-align:left;white-space:normal;padding-left:12px;word-break:break-word}
+.dct td.z{color:var(--muted)}
+.dct td.neg{color:var(--neg);font-weight:600}.dct td.pos{color:var(--pos);font-weight:600}
+.dct th:nth-child(3),.dct td:nth-child(3){padding-right:10px}
+.dct th:not(:first-child),.dct td:not(:first-child){width:1%;padding-left:6px;padding-right:12px}
+.dct th:nth-child(2),.dct td:nth-child(2){padding-right:14px}
+.dct tr.t td{font-weight:700;border-top:2px solid var(--sep)}
+@media (min-width:760px){.dhead .dv{font-size:28px}}
 </style>
 </head>
 <body>
@@ -197,7 +229,7 @@ const TABS = [['cuentas','🏦','Cuentas'],['movimientos','📋','Movimientos'],
 
 let S, catMap, accMap, txMap, refMap, payees = [], storeOK = true;
 let selMode = false; const SEL = new Set(); let VIS = [];
-let view = 'cuentas';
+let view = 'inicio';
 let mintosPanelOpen = false, mintosEditing = false;
 let f = {month: curMonth(), account: null, q: '', field:'desc', more: [], nocat: false, range: null, accset: null};
 let FID = null, FK = 'gasto';
@@ -2368,9 +2400,113 @@ function saveMintosSnapshot(){
   save(); render();
 }
 
+/* ---------- Inicio: panel de pérdidas y ganancias (mes actual y anterior) ---------- */
+function dashMonth(ym){
+  const [y,m] = ym.split('-').map(Number), nd = new Date(y, m, 0).getDate();
+  const from = ym + '-01', to = ym + '-' + pad(nd);
+  const list = S.transactions.filter(t => t.date >= from && t.date <= to && !isFuture(t) && t.type !== 'transferencia' && t.type !== 'inversion' && !R.excl.has(t.account));
+  const incL = lineRows(incomeList(list)), expL = lineRows(expenseList(list));
+  const inc = sumOf(incL), exp = -sumOf(expL);
+  const tops = new Map(), daily = new Array(nd).fill(0);
+  expL.forEach(l => {
+    const tp = topOf(l.category);
+    if (!tops.has(tp.id)) tops.set(tp.id, {id: tp.id, name: tp.name, v: 0});
+    tops.get(tp.id).v += -l.amount;
+    const d = Math.min(nd, Math.max(1, Number(l.date.slice(8, 10))));
+    daily[d-1] += -l.amount;
+  });
+  let acc = 0; const cum = daily.map(v => (acc += v));
+  return {ym, nd, inc, exp, res: inc - exp, tops, cum, n: list.length};
+}
+function dashCols(D){ return Math.round(D.res * 100) / 100 >= 0 ? ['#248a3d', '#0a7cff'] : ['#d70015', '#ff6b35']; }
+function dashShort(ym){ return MES[Number(ym.slice(5)) - 1].slice(0, 3); }
+function dashHead(D, isCur){
+  const c = dashCols(D), res = Math.round(D.res * 100) / 100;
+  const rate = D.inc > 0.005 ? Math.round(D.res / D.inc * 100) : null;
+  const sub = rate == null ? '' : (res >= 0 ? 'Ahorras el ' + rate + ' %' : 'Gastas de más');
+  return `<section class="dcard"><div class="dhead" style="background:linear-gradient(135deg,${c[0]},${c[1]})"><div class="dm">${esc(monthLabel(D.ym))}</div><div class="dsub">${isCur ? 'en curso · día ' + Number(todayStr().slice(8, 10)) : 'mes cerrado'}</div><div class="dv">${money(res)}</div><div class="ds">${esc(sub)}</div>` +
+    `<div class="dkr"><span>Ingresos</span><b>${money(D.inc)}</b></div><div class="dkr"><span>Gastos</span><b>${money(D.exp)}</b></div>` +
+    `<button class="dlink" data-dashrep="${D.ym}">Ver informe completo ›</button></div></section>`;
+}
+function dashChart(C, P, dayNow){
+  const W = 360, H = 190, pl = 8, pr = 74, pt = 40, pb = 20;
+  const maxDays = Math.max(C.nd, P.nd);
+  const ci = Math.min(dayNow, C.nd) - 1;
+  const cEnd = C.cum[ci] || 0, pEnd = P.cum[P.nd - 1] || 0;
+  const maxV = Math.max(cEnd, pEnd, 1);
+  const X = d => pl + (d - 1) / (maxDays - 1) * (W - pl - pr);
+  const Y = v => H - pb - v / maxV * (H - pb - pt);
+  const pts = (arr, n) => arr.slice(0, n).map((v, i) => (i ? 'L' : 'M') + X(i + 1).toFixed(1) + ' ' + Y(v).toFixed(1)).join(' ');
+  const cc = dashCols(C), pc = dashCols(P);
+  const cl = pts(C.cum, ci + 1), pp = pts(P.cum, P.nd);
+  const area = cl + ` L${X(ci + 1).toFixed(1)} ${H - pb} L${X(1).toFixed(1)} ${H - pb} Z`;
+  const ticks = [1, 8, 15, 22, maxDays].filter((d, i, ar) => ar.indexOf(d) === i);
+  const gx = `gradientUnits="userSpaceOnUse" x1="${pl}" x2="${W - pr}" y1="0" y2="0"`;
+  const xc = Math.min(Math.max(X(ci + 1), 34), W - pr - 10), yc = Y(cEnd);
+  const xp = X(P.nd), yp = Y(pEnd);
+  return `<svg class="dsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gasto acumulado por día">` +
+    `<defs><linearGradient id="gC" ${gx}><stop offset="0" stop-color="${cc[0]}"/><stop offset="1" stop-color="${cc[1]}"/></linearGradient><linearGradient id="gP" ${gx}><stop offset="0" stop-color="${pc[0]}"/><stop offset="1" stop-color="${pc[1]}"/></linearGradient></defs>` +
+    `<line x1="${pl}" x2="${W - pr}" y1="${H - pb}" y2="${H - pb}" stroke="var(--sep)"/>` +
+    `<line x1="${pl}" x2="${W - pr}" y1="${Y(maxV / 2)}" y2="${Y(maxV / 2)}" stroke="var(--sep)" stroke-dasharray="3 4"/>` +
+    `<line x1="${pl}" x2="${W - pr}" y1="${Y(maxV)}" y2="${Y(maxV)}" stroke="var(--sep)" stroke-dasharray="3 4"/>` +
+    ticks.map(d => `<text x="${X(d)}" y="${H - 5}" text-anchor="${d === 1 ? 'start' : d === maxDays ? 'end' : 'middle'}">${d}</text>`).join('') +
+    `<path d="${pp}" fill="none" stroke="url(#gP)" stroke-width="2.5" stroke-dasharray="6 4" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/>` +
+    `<path d="${area}" fill="url(#gC)" opacity=".12"/>` +
+    `<path d="${cl}" fill="none" stroke="url(#gC)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<circle cx="${X(ci + 1)}" cy="${yc}" r="4.5" fill="${cc[1]}" stroke="var(--card)" stroke-width="2"/>` +
+    `<circle cx="${xp}" cy="${yp}" r="3.5" fill="${pc[1]}" stroke="var(--card)" stroke-width="2"/>` +
+    `<text class="lb" x="${xc}" y="${yc - 20}" text-anchor="middle" style="fill:${cc[0]}">${esc(dashShort(C.ym))}</text>` +
+    `<text class="lb" x="${xc}" y="${yc - 8}" text-anchor="middle" style="fill:${cc[0]}">${money(cEnd)}</text>` +
+    `<text class="lb" x="${xp + 7}" y="${yp - 2}" style="fill:${pc[0]}">${esc(dashShort(P.ym))}</text>` +
+    `<text class="lb" x="${xp + 7}" y="${yp + 10}" style="fill:${pc[0]}">${money(pEnd)}</text></svg>`;
+}
+function dashCats(C, P){
+  const rows = new Map();
+  const put = (D, k) => D.tops.forEach((T, id) => { if (!rows.has(id)) rows.set(id, {id, name: T.name, cur: 0, prev: 0}); rows.get(id)[k] += T.v; });
+  put(C, 'cur'); put(P, 'prev');
+  let list = [...rows.values()].filter(x => x.cur > 0.005 || x.prev > 0.005).sort((a, b) => Math.max(b.cur, b.prev) - Math.max(a.cur, a.prev));
+  if (!list.length) return '';
+  if (list.length > 9) {
+    const rest = list.slice(8);
+    list = list.slice(0, 8);
+    list.push({id: -1, name: 'Otras', cur: rest.reduce((s, x) => s + x.cur, 0), prev: rest.reduce((s, x) => s + x.prev, 0)});
+  }
+  const cc = dashCols(C)[0], pc = dashCols(P)[0];
+  const cell = v => v > 0.005 ? `<td>${money(v)}</td>` : `<td class="z">–</td>`;
+  const vr = (c, p) => {
+    const d = Math.round((c - p) * 100) / 100;
+    if (d === 0) return '<td class="z">=</td>';
+    const cls = d > 0 ? 'neg' : 'pos';
+    if (p <= 0.005) return `<td class="${cls}">nuevo</td>`;
+    const pc = Math.round(d / p * 100);
+    return `<td class="${cls}">${d > 0 ? '▲' : '▼'} ${d > 0 ? '+' : ''}${pc} %</td>`;
+  };
+  const body = list.map(x => { const ic = x.id > 0 ? catIconOf(x.id) : null; return `<tr><td>${ic ? ic + ' ' : ''}${esc(x.name)}</td>${cell(x.cur)}${cell(x.prev)}${vr(x.cur, x.prev)}</tr>`; }).join('');
+  return `<section class="dcard dcat"><table class="dct"><thead><tr><th>Gastos por categoría</th><th style="color:${cc}">${esc(dashShort(C.ym))}</th><th style="color:${pc}">${esc(dashShort(P.ym))}</th><th>Var.</th></tr></thead><tbody>${body}<tr class="t"><td>Total</td><td>${money(C.exp)}</td><td>${money(P.exp)}</td>${vr(C.exp, P.exp)}</tr></tbody></table></section>`;
+}
+function viewDash(){
+  const cur = curMonth(), prv = shiftMonth(cur, -1);
+  const C = dashMonth(cur), P = dashMonth(prv);
+  const dayNow = Number(todayStr().slice(8, 10));
+  const cNow = C.cum[Math.min(dayNow, C.nd) - 1] || 0, pSame = P.cum[Math.min(dayNow, P.nd) - 1] || 0;
+  const diff = Math.round((cNow - pSame) * 100) / 100;
+  const pct = pSame > 0.005 ? Math.round(diff / pSame * 100) : null;
+  const chip = diff === 0 ? '' : `<span class="dchip ${diff > 0 ? 'neg' : 'pos'}">${diff > 0 ? '▲ ' : '▼ '}${money(Math.abs(diff))}${pct == null ? '' : ' (' + (pct > 0 ? '+' : '') + pct + ' %)'} ${diff > 0 ? 'más' : 'menos'} que el mes pasado a esta fecha</span>`;
+  return `<div class="dgrid">${dashHead(C, true)}${dashHead(P, false)}</div>` +
+    `<section class="dcard dwide"><h3>Gasto acumulado día a día</h3>${chip}${dashChart(C, P, dayNow)}</section>` +
+    dashCats(C, P) +
+    `<div class="empty" style="padding:6px 18px 16px">Sin traspasos ni inversiones. Los reembolsos restan de su categoría.</div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-dashrep]');
+  if (!b) return;
+  e.stopPropagation();
+  CMP.on = false; R.mode = 'mes'; f.month = b.dataset.dashrep; go('informes');
+}, true);
+
 function render(){
   $('#tabs').innerHTML = TABS.map(([k,g,l]) => `<button class="${(view === k || (k === 'ajustes' && view === 'categorias')) ? 'on' : ''}" data-tab="${k}"><span class="g">${g}</span>${l}</button>`).join('');
-  const titles = {cuentas:'Cuentas', movimientos:'Movimientos', informes:'Pérdidas y ganancias', ajustes:'Ajustes', categorias:'Categorías'};
+  const titles = {inicio:'Pérdidas y ganancias', cuentas:'Cuentas', movimientos:'Movimientos', informes:'Pérdidas y ganancias', ajustes:'Ajustes', categorias:'Categorías'};
   let title = titles[view];
   if (view === 'movimientos' && f.account && accMap.get(f.account)) title = accMap.get(f.account).name;
   $('#title').textContent = title;
@@ -2386,7 +2522,7 @@ function render(){
   }
   $('#hact').innerHTML = hact;
   const banner = (MIGRATED ? `<div class="banner">Datos actualizados a la versión corregida. Tu copia anterior queda guardada en Ajustes. <button class="btn" data-act="dismiss">Entendido</button></div>` : '') + (storeOK ? '' : `<div class="banner">Este navegador no permite guardar datos aquí. Antes de cerrar, exporta una copia desde Ajustes.</div>`);
-  const body = view === 'cuentas' && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:8px">Importa tu copia JSON desde Ajustes para empezar en este dispositivo.</div><button class="btn primary" style="margin-top:14px;background:#fff;color:#075fc5" data-act="settings">Abrir Ajustes e importar copia</button></div>` : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : viewSettings();
+  const body = (view === 'cuentas' || view === 'inicio') && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:8px">Importa tu copia JSON desde Ajustes para empezar en este dispositivo.</div><button class="btn primary" style="margin-top:14px;background:#fff;color:#075fc5" data-act="settings">Abrir Ajustes e importar copia</button></div>` : view === 'inicio' ? viewDash() : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : viewSettings();
   $('#main').innerHTML = banner + body;
 }
 
