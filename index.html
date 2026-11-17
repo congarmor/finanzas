@@ -555,6 +555,13 @@ function diagText(){
   L.push('8255 cambiado en este dispositivo: ' + (S.touched.tx[8255] ? 'sí' : 'no'));
   return L.join('\n');
 }
+/* Id único entre dispositivos: marca de tiempo (x1000) que no coincide con ningún id existente. Así se puede apuntar en iMac o iPhone sin que choquen. */
+function newId(list){
+  const used = new Set(list.map(x => x.id));
+  let id = Date.now() * 1000;
+  while (used.has(id)) id += 1000;
+  return id;
+}
 function holdingValue(h){ return h.shares * h.price; }
 function accTotal(a, b){ let v = b.get(a.id) || 0; if (a.type === 'inversion') holdingsOf(a.id).forEach(h => { v += holdingValue(h); }); return v; }
 function fmtPrice(p){ return p.toLocaleString('es-ES', {useGrouping:true, minimumFractionDigits: 2, maximumFractionDigits: 3}) + ' €'; }
@@ -1362,7 +1369,7 @@ function pkNewSave(){
   let id;
   if (dup) id = dup.id;
   else {
-    id = S.categories.reduce((m,c) => Math.max(m, c.id), 0) + 1;
+    id = newId(S.categories);
     S.categories.push({id, name, parent: par, icon: null}); touch('cat', id);
     reindex(); save();
   }
@@ -1487,7 +1494,7 @@ async function saveForm(){
   }
   const keepId = orig && !tr && orig.type !== 'transferencia' ? orig.id : null;
   removeOriginal();
-  let nid = keepId != null ? keepId : S.transactions.reduce((m,t) => Math.max(m, t.id), 0) + 1;
+  let nid = keepId != null ? keepId : newId(S.transactions);
   touch('tx', nid); if (tr) touch('tx', nid + 1);
   if (tr) {
     S.transactions.push({id:nid, date, amount:-amt, account:acc, type:'transferencia', category:null, payee:null, desc, note, transferAccount:to, pair:nid+1, reconciled:true});
@@ -1537,7 +1544,7 @@ function saveAcc(){
   if (FACC != null) {
     Object.assign(accMap.get(FACC), {name, type, opening, inNetWorth: inc, archived: arch}); touch('acc', FACC);
   } else {
-    const id = S.accounts.reduce((m,a) => Math.max(m, a.id), 0) + 1;
+    const id = newId(S.accounts);
     S.accounts.push({id, name, type, opening, inNetWorth: inc, archived: arch, group: null}); touch('acc', id);
   }
   reindex(); save(); closeForm(); render();
@@ -1706,7 +1713,7 @@ function saveCat(){
     c.name = name; c.icon = FICON; touch('cat', c.id);
     if (!$('#c_par').disabled) c.parent = par;
   } else {
-    const id = S.categories.reduce((m,c) => Math.max(m, c.id), 0) + 1;
+    const id = newId(S.categories);
     S.categories.push({id, name, parent: par, icon: FICON}); touch('cat', id);
   }
   reindex(); save(); closeForm(); render();
@@ -1932,7 +1939,11 @@ function mergeData(inc){
     const out = local.slice();
     for (const r of incoming) {
       if (!idx.has(r.id)) {
-        if (S.deleted[key] && S.deleted[key][r.id]) { (st.skipped = st.skipped || []).push(key + ' ' + r.id); continue; }
+        const borradoAqui = S.deleted[key] && S.deleted[key][r.id];
+        const borradoEnArchivo = inc.deleted && inc.deleted[key] && inc.deleted[key][r.id];
+        if (borradoAqui && borradoEnArchivo) { (st.skipped = st.skipped || []).push(key + ' ' + r.id); continue; }
+        // El archivo sigue teniendo el registro: se revive y se quita el borrado local
+        if (borradoAqui) { delete S.deleted[key][r.id]; (st.revived = st.revived || []).push(key + ' ' + r.id); }
         out.push(JSON.parse(JSON.stringify(r))); st.add++; continue;
       }
       const i = idx.get(r.id);
@@ -1968,7 +1979,7 @@ async function mergeImport(inc){
   if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
   setBackup(KEY + '-antes-fusion', JSON.stringify(S));
   const st = mergeData(inc); save(); closeForm(); render();
-  const lista = [st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
+  const lista = [st.revived && st.revived.length ? 'Recuperados (estaban borrados en este dispositivo): ' + st.revived.join(', ') : '', st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
   alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.` + (lista ? '\n\n' + lista : ''));
 }
 
@@ -2232,7 +2243,7 @@ async function importBankFile(file){
   const warn = transfers ? '\n\nOjo: ' + transfers + ' parecen traspasos entre cuentas; revísalos por si cuentan dos veces.' : '';
   if (!await uiConfirm('Se añadirán ' + add.length + ' movimientos nuevos a ' + acc.name + ' y se omitirán ' + skipped + ' que ya estaban. Se conservan sus categorías.' + warn + '\n\n¿Continuar?')) return;
   setBackup(KEY + '-antes-importar', JSON.stringify(S));
-  let nid = S.transactions.reduce((mx, t) => Math.max(mx, t.id), 0) + 1;
+  let nid = newId(S.transactions);
   add.forEach(m => {
     touch('tx', nid);
     S.transactions.push({id: nid++, date: m.date, amount: m.amount, account: acc.id, type: m.amount < 0 ? 'gasto' : 'ingreso', category: m.category, splits: null, payee: null, desc: m.desc, note: '', transferAccount: null, pair: null, reconciled: false});
