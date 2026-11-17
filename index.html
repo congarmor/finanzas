@@ -535,6 +535,26 @@ function holdingText(x){
   return {mid, line2, priceDate, amt};
 }
 function holdingsOf(accId){ return (S.holdings || []).filter(h => h.account === accId); }
+function diagText(){
+  const acc = S.accounts.find(a => a.name === 'Santander');
+  const L = [];
+  L.push('Hoy en este dispositivo: ' + todayStr());
+  L.push('Versión de datos: ' + S.dataVersion + ' · Movimientos totales: ' + S.transactions.length);
+  if (!acc) return L.concat('No existe la cuenta Santander en este dispositivo.').join('\n');
+  const txs = S.transactions.filter(t => t.account === acc.id);
+  const futuros = txs.filter(t => isFuture(t));
+  L.push('Santander (id ' + acc.id + '): saldo inicial ' + acc.opening + ' · movimientos ' + txs.length + ' · futuros excluidos ' + futuros.length);
+  L.push('Saldo calculado: ' + (Number(acc.opening) + txs.filter(t => !isFuture(t)).reduce((x, t) => x + t.amount, 0)).toFixed(2));
+  L.push('Movimientos desde el 16/11:');
+  txs.filter(t => t.date >= '2026-11-16').forEach(t => L.push('  ' + t.id + ' · ' + t.date + ' · ' + t.amount + ' · ' + t.type + ' · ' + (t.desc || '').slice(0, 30)));
+  [8255, 8256].forEach(id => {
+    const t = S.transactions.find(x => x.id === id);
+    L.push(id + ': ' + (t ? 'existe, cuenta ' + t.account + ', importe ' + t.amount + ', fecha ' + t.date + ', tipo ' + t.type : 'NO EXISTE'));
+  });
+  L.push('8255 borrado en este dispositivo: ' + (S.deleted.tx[8255] ? 'sí' : 'no'));
+  L.push('8255 cambiado en este dispositivo: ' + (S.touched.tx[8255] ? 'sí' : 'no'));
+  return L.join('\n');
+}
 function holdingValue(h){ return h.shares * h.price; }
 function accTotal(a, b){ let v = b.get(a.id) || 0; if (a.type === 'inversion') holdingsOf(a.id).forEach(h => { v += holdingValue(h); }); return v; }
 function fmtPrice(p){ return p.toLocaleString('es-ES', {useGrouping:true, minimumFractionDigits: 2, maximumFractionDigits: 3}) + ' €'; }
@@ -1249,6 +1269,7 @@ function viewSettings(){
     <div class="row" data-act="export-json"><div class="mid"><div class="t1">Exportar copia (JSON)</div><div class="t2">Descarga una copia .json de tus datos</div></div></div>
     <div class="row" data-act="import"><div class="mid"><div class="t1">Importar copia</div><div class="t2">Añade lo que falte y actualiza lo que no hayas cambiado aquí. Tus cambios se mantienen</div></div></div>
     <div class="row" data-act="replace-import"><div class="mid"><div class="t1">Reemplazar todos los datos desde un JSON</div><div class="t2">Sustituye por completo la información de este dispositivo. Antes se guarda una copia recuperable.</div></div></div>
+    <div class="row" data-act="diag"><div class="mid"><div class="t1">Diagnóstico de saldos</div><div class="t2">Muestra los datos de Santander y de los apuntes recientes de este dispositivo</div></div></div>
     <div class="row" data-act="restorebak"><div class="mid"><div class="t1">Volver a la copia anterior</div><div class="t2">Deshace la última fusión, importación o reemplazo</div></div></div>
     <div class="row" data-act="import-bank"><div class="mid"><div class="t1">Importar extracto del banco</div><div class="t2">Excel (.xls/.xlsx) o PDF. Añade solo los movimientos que faltan y conserva las categorías ya asignadas</div></div></div>
     <div class="row" data-act="export-html"><div class="mid"><div class="t1">Exportar HTML (con los datos de este equipo)</div><div class="t2">Descarga una copia .html independiente que lleva dentro los datos de este dispositivo. No se genera junto al JSON</div></div></div>
@@ -2342,6 +2363,7 @@ function act(a){
   else if (a === 'import') $('#fileIn').click();
   else if (a === 'import-bank') ensureBankInput().click();
   else if (a === 'replace-import') $('#replaceIn').click();
+  else if (a === 'diag') alert(diagText());
    else if (a === 'export-all-xlsx') exportAllXlsx();
    else if (a === 'export-all-csv') exportAllCsvZip();
    else if (a === 'export-cats-xlsx') exportCategoriesXlsx();
