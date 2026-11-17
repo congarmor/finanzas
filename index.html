@@ -217,7 +217,7 @@ img{-webkit-user-drag:none;user-drag:none}
     <div class="row"><div class="mid"><div class="t1">Categorías</div></div><div class="amt">192</div></div>
   </div>
   <div class="empty">Los datos se guardan en este navegador. Para usarlos en otro dispositivo, exporta una copia aquí y, en el otro, impórtala.</div></main>
-<nav class="tabs" id="tabs"><button class="" data-tab="cuentas"><span class="g">🏦</span>Cuentas</button><button class="" data-tab="movimientos"><span class="g">📋</span>Movimientos</button><button class="" data-tab="informes"><span class="g">📊</span>Informes</button><button class="on" data-tab="ajustes"><span class="g">⚙️</span>Ajustes</button></nav>
+<nav class="tabs" id="tabs"><button class="" data-tab="inicio"><span class="g">📈</span>P y G</button><button class="" data-tab="cuentas"><span class="g">🏦</span>Cuentas</button><button class="" data-tab="movimientos"><span class="g">📋</span>Movimientos</button><button class="" data-tab="informes"><span class="g">📊</span>Informes</button><button class="on" data-tab="ajustes"><span class="g">⚙️</span>Ajustes</button></nav>
 <div id="ov"><div id="sheet"></div></div>
 <input type="file" id="fileIn" accept="application/json,.json" class="hide"><input type="file" id="replaceIn" accept="application/json,.json" class="hide">
 
@@ -261,7 +261,7 @@ const fmtDay = s => { const [y,m,d] = s.split('-').map(Number); const mes = MES[
 const byAsc = (a,b) => a.date.localeCompare(b.date) || a.id - b.id;
 const TYPE_LABEL = {gasto:'Gasto', ingreso:'Ingreso', reembolso:'Reembolso', transferencia:'Transferencia', inversion:'Inversión'};
 const ACC_LABEL = {cheques:'Cuenta corriente', ahorro:'Ahorro', efectivo:'Efectivo', credito:'Tarjeta de crédito', inversion:'Inversión'};
-const TABS = [['cuentas','🏦','Cuentas'],['movimientos','📋','Movimientos'],['informes','📊','Informes'],['ajustes','⚙️','Ajustes']];
+const TABS = [['inicio','📈','P y G'],['cuentas','🏦','Cuentas'],['movimientos','📋','Movimientos'],['informes','📊','Informes'],['ajustes','⚙️','Ajustes']];
 
 let S, catMap, accMap, txMap, refMap, payees = [], storeOK = true;
 let selMode = false; const SEL = new Set(); let VIS = [];
@@ -1910,10 +1910,15 @@ function mergeData(inc){
     const idx = new Map(local.map((x, i) => [x.id, i]));
     const out = local.slice();
     for (const r of incoming) {
-      if (!idx.has(r.id)) { if (S.deleted[key] && S.deleted[key][r.id]) continue; out.push(JSON.parse(JSON.stringify(r))); st.add++; continue; }
+      if (!idx.has(r.id)) {
+        if (S.deleted[key] && S.deleted[key][r.id]) { (st.skipped = st.skipped || []).push(key + ' ' + r.id); continue; }
+        out.push(JSON.parse(JSON.stringify(r))); st.add++; continue;
+      }
       const i = idx.get(r.id);
-      if (tc[key] && tc[key][r.id]) { st.keep++; continue; }
-      if (canon(out[i]) !== canon(r)) { out[i] = JSON.parse(JSON.stringify(r)); st.upd++; }
+      // La copia del archivo manda: si este dispositivo tenía otra versión del mismo registro, se sustituye (y se avisa)
+      if (canon(out[i]) === canon(r)) continue;
+      if (tc[key] && tc[key][r.id]) (st.kept = st.kept || []).push(key + ' ' + r.id);
+      out[i] = JSON.parse(JSON.stringify(r)); st.upd++;
     }
     return out;
   };
@@ -1923,7 +1928,15 @@ function mergeData(inc){
   S.reports = mergeColl('rep', applyDeletes('rep', S.reports || []), inc.reports || []);
   S.holdings = S.holdings || [];
   const hid = new Set(S.holdings.map(h => h.id));
-  (inc.holdings || []).forEach(h => { if (!hid.has(h.id)) S.holdings.push(JSON.parse(JSON.stringify(h))); });
+  const hidx = new Map(S.holdings.map((h, i) => [h.id, i]));
+  (inc.holdings || []).forEach(h => {
+    if (!hidx.has(h.id)) { S.holdings.push(JSON.parse(JSON.stringify(h))); st.upd++; return; }
+    const loc = S.holdings[hidx.get(h.id)];
+    if (loc.price !== h.price || loc.priceDate !== h.priceDate || loc.prevClose !== h.prevClose || loc.shares !== h.shares || loc.cost !== h.cost) {
+      Object.assign(loc, {shares: h.shares, cost: h.cost, price: h.price, priceDate: h.priceDate, prevClose: h.prevClose});
+      st.upd++;
+    }
+  });
   const ord = new Set(S.accountOrder || []);
   S.accountOrder = [...(S.accountOrder || []), ...(inc.accountOrder || []).filter(id => !ord.has(id))];
   reindex();
@@ -1934,7 +1947,8 @@ async function mergeImport(inc){
   if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
   setBackup(KEY + '-antes-fusion', JSON.stringify(S));
   const st = mergeData(inc); save(); closeForm(); render();
-  alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.`);
+  const lista = [st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
+  alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.` + (lista ? '\n\n' + lista : ''));
 }
 
 /* ---------- Estado de informes y filtro por categorías ---------- */
@@ -2665,7 +2679,7 @@ document.addEventListener('change', e => {
   if (el.id === 'f_amt' && FSPL) splitUI();
 });
 
-S = loadState(); repairRefunds();
+S = loadState(); if (MIGRATED) repairRefunds();
 if (S.repState) { R.excl = new Set(S.repState.excl || []); R.cats = new Set(S.repState.cats || []); }
 reindex();
 save();
