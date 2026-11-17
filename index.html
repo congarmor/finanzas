@@ -1629,7 +1629,7 @@ function openForm(id, duplicate = false){
       <div class="fr"><label id="lbl_acc">Cuenta</label><select id="f_acc">${accOpts(from)}</select></div>
       <div class="fr hide" id="row_to"><label>Hacia</label><select id="f_to">${accOpts(to)}</select></div>
       <div class="fr" id="row_cat"><label>Categoría</label><button type="button" class="pkbtn${orig && orig.category ? '' : ' none'}" id="f_cat_b" data-pkopen="f_cat">${catBtn(orig ? orig.category : null)}</button><input type="hidden" id="f_cat" value="${orig && orig.category != null ? orig.category : ''}"></div>
-      <div class="fr" id="row_pay"><label>Beneficiario</label><input id="f_pay" list="paylist" value="${esc(orig ? orig.payee || '' : '')}" placeholder="Opcional"><datalist id="paylist">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
+      <div class="fr" id="row_pay"><label>Beneficiario</label><button type="button" class="pkbtn ${orig && orig.payee ? '' : 'none'}" id="f_pay_b" data-benopen="1">${esc(orig && orig.payee ? orig.payee : 'Elegir beneficiario')} ›</button><input type="hidden" id="f_pay" value="${esc(orig ? orig.payee || '' : '')}"></div>
       <div class="fr"><label>Nota</label><textarea id="f_note" rows="3" placeholder="Opcional">${esc(orig ? orig.note || '' : '')}</textarea></div>
     </div>
     <div class="fld hide" id="row_ref_box"><div class="fr" style="align-items:flex-start"><label>Reembolso de</label><button type="button" class="pkbtn refb${orig && !duplicate && orig.refundOf != null && txMap.has(orig.refundOf) ? '' : ' none'}" id="f_ref_b" data-refopen="1">${refBtnHtml(orig && !duplicate && orig.refundOf != null && txMap.has(orig.refundOf) ? orig.refundOf : null)}</button><input type="hidden" id="f_ref" value="${esc(orig && !duplicate && orig.refundOf != null && txMap.has(orig.refundOf) ? exLabel(txMap.get(orig.refundOf)) + ' (' + orig.refundOf + ')' : '')}"></div></div>
@@ -2886,6 +2886,7 @@ document.addEventListener('change', e => {
   if (id === 'bsel') { BR.who = e.target.value || null; BQ = ''; render(); return; }
 });
 document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'bp_q') { renderBpList(e.target.value); return; }
   if (e.target && e.target.id === 'bq') { BQ = e.target.value; const l = document.getElementById('blist'); if (l) l.innerHTML = view === 'beneficiarios' ? benMgmtListHtml() : benListHtml(); }
 });
 document.addEventListener('click', e => {
@@ -2920,6 +2921,9 @@ document.addEventListener('click', e => {
   const rex = t.closest('[data-rexp]'); if (rex) { const id = Number(rex.dataset.rexp); if (RCEXP.has(id)) RCEXP.delete(id); else RCEXP.add(id); const l = document.getElementById('rclist'); if (l) l.innerHTML = catPickInner(); return; }
   const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); return; }
   const k = t.closest('#kind button'); if (k) { FK = k.dataset.k; formUI(); return; }
+  const bo = t.closest('[data-benopen]'); if (bo) { benPickOpen((document.getElementById('f_pay') || {}).value || null); return; }
+  const bk = t.closest('[data-bpk]'); if (bk) { benPickSet(bk.dataset.bpk); return; }
+  const bn = t.closest('[data-bpnew]'); if (bn) { benPickSet((document.getElementById('bp_q') || {}).value || ''); return; }
   const bp = t.closest('[data-bpick]'); if (bp) { BR.who = bp.dataset.bpick; BQ = ''; render(); window.scrollTo(0,0); return; }
   const be = t.closest('[data-bedit]'); if (be) { benEditSheet(be.dataset.bedit); return; }
   const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab); return; }
@@ -3318,6 +3322,37 @@ function grafMensual(){
   inc.forEach(t => { get(t.date.slice(0,7)).b += t.amount; });
   return [...meses.entries()].sort((x, y) => x[0] < y[0] ? -1 : 1)
     .map(([m, v]) => ({label: m.slice(5) + '/' + m.slice(2, 4), a: Math.max(0, v.a), b: Math.max(0, v.b)}));
+}
+let BP = null;
+function benPickOpen(sel){
+  BP = {sel: sel || null};
+  let el = document.getElementById('pk');
+  if (!el) { el = document.createElement('div'); el.id = 'pk'; document.body.appendChild(el); }
+  el.innerHTML = `<div id="pkbox"><div class="hd"><button class="btn" data-pkx="1">Cancelar</button><strong>Beneficiario</strong><span style="width:70px"></span></div><div class="fld"><input id="bp_q" class="field" type="search" placeholder="Buscar o escribir uno nuevo…" autocomplete="off" autocapitalize="off"></div><div id="bp_list"></div></div>`;
+  el.classList.add('on');
+  renderBpList('');
+  setTimeout(() => { const i = document.getElementById('bp_q'); if (i) i.focus(); }, 50);
+}
+function renderBpList(q){
+  const box = document.getElementById('bp_list'); if (!box) return;
+  const norm = x => nrm(x).replace(/[^a-z0-9]+/g, ' ').trim();
+  const qn = norm(q), txt = String(q || '').trim();
+  const names = payeeNames();
+  const hits = names.filter(n => !qn || norm(n).includes(qn));
+  const existe = names.some(n => norm(n) === norm(txt));
+  let h = `<div class="pkr${BP.sel == null ? ' on' : ''}" data-bpk=""><span class="pkt">Sin beneficiario</span></div>`;
+  hits.forEach(n => { h += `<div class="pkr${n === BP.sel ? ' on' : ''}" data-bpk="${esc(n)}"><span class="pkt">${esc(n)}</span>${n === BP.sel ? '<span style="color:var(--accent)">✓</span>' : ''}</div>`; });
+  if (txt && !existe) h += `<div class="pkr" data-bpnew="1" style="color:var(--accent)"><span class="pkt">+ Crear «${esc(txt)}»</span></div>`;
+  if (!hits.length && !txt) h += `<div class="empty">Aún no hay beneficiarios. Escribe un nombre para crearlo.</div>`;
+  box.innerHTML = h;
+}
+function benPickSet(name){
+  const n = (name || '').trim() || null;
+  const h = document.getElementById('f_pay'); if (h) h.value = n || '';
+  const b = document.getElementById('f_pay_b');
+  if (b) { b.innerHTML = esc(n || 'Elegir beneficiario') + ' ›'; b.classList.toggle('none', !n); }
+  if (n && !(S.payees || []).includes(n)) S.payees = [...(S.payees || []), n];
+  pkClose();
 }
 function viewReports(){
   const tabs = `<div class="seg noprint"><button data-rtab="informe" class="${!BENREP && !CMP.on ? 'on' : ''}">Informe</button><button data-rtab="comparar" class="${!BENREP && CMP.on ? 'on' : ''}">Comparar periodos</button><button data-rtab="beneficiarios" class="${BENREP ? 'on' : ''}">Beneficiarios</button></div>`;
