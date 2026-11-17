@@ -454,6 +454,7 @@ function reindex(){
   accMap = new Map(S.accounts.map(a => [a.id, a]));
   S.transactions.forEach(t => { if (t.desc === undefined) t.desc = ''; });
   if (!S.payees) S.payees = [];
+  if (!S.payeeIcons) S.payeeIcons = {};
   payees = payeeNames();
 }
 function catPath(id){
@@ -589,6 +590,11 @@ function benTotals(from, to){
   });
   return tot;
 }
+function payIcon(t){ return (t && t.payee && (S.payeeIcons || {})[t.payee]) || null; }
+function benAvatar(n){
+  const ic = (S.payeeIcons || {})[n];
+  return ic ? `<div class="ic" style="background:transparent;font-size:22px">${esc(ic)}</div>` : `<div class="ic" style="background:${colorOf(n)}">${esc((n || '?')[0].toUpperCase())}</div>`;
+}
 function benFilter(names){
   const ws = nrm(BQ).split(/\s+/).map(w => w.replace(/[^a-z0-9]+/g, '')).filter(Boolean);
   return names.filter(n => !ws.length || ws.every(w => nrm(n).includes(w)));
@@ -602,7 +608,7 @@ function benListHtml(){
   if (!rows.length) return `<div class="empty">Ningún beneficiario tiene movimientos entre ${fechaTxt(from)} y ${fechaTxt(to)}.</div>`;
   const totPag = rows.reduce((a, [, r]) => a + r.pagado, 0), totRec = rows.reduce((a, [, r]) => a + r.recibido, 0), totN = rows.reduce((a, [, r]) => a + r.n, 0);
   const resumen = `<div class="hero" style="margin:0 0 8px"><div class="l">Total pagado a ${rows.length} beneficiario${rows.length === 1 ? '' : 's'}</div><div class="v">${money(-totPag)}</div><div class="l" style="margin-top:8px">${totN} movimiento${totN === 1 ? '' : 's'}${totRec ? ' · recibido ' + money(totRec) : ''}</div></div>`;
-  return resumen + rows.map(([n, r]) => `<div class="row" data-bpick="${esc(n)}"><div class="ic" style="background:${colorOf(n)}">${esc((n||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${r.n} movimiento${r.n === 1 ? '' : 's'}${r.recibido ? ' · recibido ' + money(r.recibido) : ''}</div></div><div class="amt neg">${money(-r.pagado)}</div></div>`).join('');
+  return resumen + rows.map(([n, r]) => `<div class="row" data-bpick="${esc(n)}">${benAvatar(n)}<div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${r.n} movimiento${r.n === 1 ? '' : 's'}${r.recibido ? ' · recibido ' + money(r.recibido) : ''}</div></div><div class="amt neg">${money(-r.pagado)}</div></div>`).join('');
 }
 function benDetailHtml(){
   const {from, to} = benRange();
@@ -682,13 +688,51 @@ function benMgmtListHtml(){
   S.transactions.forEach(t => { if (t.payee) cnt.set(t.payee, (cnt.get(t.payee) || 0) + 1); });
   const lista = benFilter(names);
   if (!lista.length) return '<div class="empty">Ningún beneficiario coincide</div>';
-  return lista.map(n => `<div class="row" data-bedit="${esc(n)}"><div class="ic" style="background:${colorOf(n)}">${esc((n||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${cnt.get(n)} movimiento${cnt.get(n) === 1 ? '' : 's'}</div></div></div>`).join('');
+  return lista.map(n => `<div class="row" data-bedit="${esc(n)}">${benAvatar(n)}<div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${cnt.get(n)} movimiento${cnt.get(n) === 1 ? '' : 's'}</div></div></div>`).join('');
 }
 function viewBeneficiarios(){
   if (!payeeNames().length) return `<div class="empty">Aún no hay beneficiarios. Pulsa "+ Beneficiario" o asígnalo en un movimiento.</div>`;
   return `<input id="bq" class="field" type="search" placeholder="Buscar beneficiario…" value="${esc(BQ)}" autocomplete="off" autocapitalize="off">`
     + `<div id="blist" class="card" style="margin-top:0">${benMgmtListHtml()}</div>`
     + `<div class="empty">Toca un beneficiario para renombrarlo. Dejar el nombre vacío lo elimina de sus movimientos.</div>`;
+}
+let BEDIT = null;
+function benEditSheet(name){
+  BEDIT = name; FICON = (S.payeeIcons || {})[name] || null;
+  const uses = S.transactions.filter(t => t.payee === name).length;
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Beneficiario</strong><button class="btn primary" data-act="bedsave">Guardar</button></div>`
+    + `<div class="fld"><div class="fr"><label>Nombre</label><input id="be_name" value="${esc(name)}" autocomplete="off"></div></div>`
+    + `<div class="fld"><div class="fr" style="align-items:flex-start"><label>Icono</label><div id="iconpick" style="display:flex;flex-wrap:wrap;gap:6px">${iconPickHtml()}</div></div></div>`
+    + `<div class="bar" style="justify-content:space-between;flex-wrap:wrap"><button class="btn" data-act="bedall">Mismo icono para todos</button><button class="btn danger" data-act="beddel">Eliminar</button></div>`
+    + `<div class="empty">${uses} movimiento${uses === 1 ? '' : 's'}. «Mismo icono para todos» aplica el icono elegido (o ninguno con «Auto») a todos los beneficiarios.</div>`;
+  $('#ov').classList.add('on');
+}
+function benEditSave(){
+  const old = BEDIT; if (old == null) return;
+  const n = ($('#be_name').value || '').trim();
+  if (!n) { alert('El nombre no puede estar vacío'); return; }
+  S.transactions.forEach(t => { if (t.payee === old) t.payee = n; });
+  S.payees = [...new Set((S.payees || []).map(x => x === old ? n : x).concat(n))];
+  S.payeeIcons = S.payeeIcons || {};
+  delete S.payeeIcons[old];
+  if (FICON) S.payeeIcons[n] = FICON;
+  if (BR.who === old) BR.who = n;
+  BEDIT = null; save(); closeForm(); render();
+}
+function benIconAll(){
+  S.payeeIcons = S.payeeIcons || {};
+  payeeNames().forEach(n => { if (FICON) S.payeeIcons[n] = FICON; else delete S.payeeIcons[n]; });
+  save(); closeForm(); render();
+}
+async function benDeleteBen(name){
+  if (name == null) return;
+  const uses = S.transactions.filter(t => t.payee === name).length;
+  if (!await uiConfirm('¿Eliminar "' + name + '"? Se quitará de ' + uses + ' movimientos.', 'Eliminar beneficiario', 'Eliminar')) return;
+  S.transactions.forEach(t => { if (t.payee === name) t.payee = null; });
+  S.payees = (S.payees || []).filter(x => x !== name);
+  if (S.payeeIcons) delete S.payeeIcons[name];
+  if (BR.who === name) BR.who = null;
+  BEDIT = null; closeForm(); save(); render();
 }
 async function benNew(){
   const v = await uiPrompt('Nombre del beneficiario', '', 'Nuevo beneficiario', 'Guardar');
@@ -771,12 +815,26 @@ function qSummary(){
   return `<div class="card" style="margin:8px 12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div class="t1">${list.length} apuntes</div><div class="t2">Total <span class="${sign(tot)}"><strong>${money(tot)}</strong></span></div></div><button class="btn" data-act="toreport">Ver como informe</button></div>`;
 }
 function selBar(){
-  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-act="selall">Todas las visibles (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn" data-act="selcat">Cambiar categoría</button><button class="btn danger" data-act="seldel">Eliminar</button></div></div>`;
+  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-act="selall">Todas las visibles (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn" data-act="selcat">Cambiar categoría</button><button class="btn" data-act="selpay">Beneficiario</button><button class="btn danger" data-act="seldel">Eliminar</button></div></div>`;
 }
 function selCatOpen(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
   $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Cambiar categoría</strong><button class="btn primary" data-act="selcatapply">Aplicar</button></div><div class="fld"><div class="fr"><label>Categoría</label><button type="button" class="pkbtn none" id="sc_cat_b" data-pkopen="sc_cat">Elegir categoría ›</button><input type="hidden" id="sc_cat" value=""></div></div><div class="empty">Se aplicará a ${SEL.size} apuntes. Los que estaban divididos en varias categorías quedarán con una sola.</div>`;
   $('#ov').classList.add('on');
+}
+function selPayOpen(){
+  if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
+  const nombres = payeeNames();
+  FICON = null;
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Asignar beneficiario</strong><button class="btn primary" data-act="selpayapply">Aplicar</button></div><div class="fld"><div class="fr"><label>Beneficiario</label><input id="sp_pay" class="field" list="sp_list" autocomplete="off" placeholder="Escribe o elige uno"><datalist id="sp_list">${nombres.map(n => `<option value="${esc(n)}">`).join('')}</datalist></div></div><div class="fld"><div class="fr" style="align-items:flex-start"><label>Icono</label><div id="iconpick" style="display:flex;flex-wrap:wrap;gap:6px">${iconPickHtml()}</div></div></div><div class="empty">Se aplicará a ${SEL.size} apuntes. Con un icono elegido, estos apuntes muestran ese icono aunque su categoría tenga otro color. «Auto» no cambia el icono. Deja el beneficiario vacío para quitarlo de esos apuntes.</div>`;
+  $('#ov').classList.add('on');
+}
+function selPayApply(){
+  const nombre = ($('#sp_pay').value || '').trim() || null;
+  if (nombre && !(S.payees || []).includes(nombre)) S.payees = [...(S.payees || []), nombre];
+  if (nombre && FICON) { S.payeeIcons = S.payeeIcons || {}; S.payeeIcons[nombre] = FICON; }
+  S.transactions.forEach(t => { if (SEL.has(t.id) && t.type !== 'transferencia') { t.payee = nombre; touch('tx', t.id); } });
+  SEL.clear(); save(); closeForm(); reindex(); render();
 }
 function selCatApply(){
   const cat = Number($('#sc_cat').value) || null;
@@ -874,11 +932,12 @@ function rowHtml(t, run){
     ch = esc((key||'?')[0].toUpperCase());
   }
   const fut = isFuture(t) ? ' style="opacity:.55"' : '';
-  const ci = t.type === 'transferencia' ? null : (t.splits ? null : catIconOf(t.category));
+  const pi = payIcon(t);
+  const ci = pi || (t.type === 'transferencia' ? null : (t.splits ? null : catIconOf(t.category)));
   if (ci) ch = ci;
   const chk = selMode ? `<span class="chk ${SEL.has(t.id) ? 'on' : ''}">✓</span>` : '';
   const parts = t.splits ? t.splits.map(s => `<div class="t2" style="display:flex;justify-content:space-between;gap:8px"><span>${esc(catPath(s.category) || 'Sin categoría')}</span><span>${money(s.amount)}</span></div>`).join('') : '';
-  return `<div class="row" data-tx="${t.id}"${fut}>${chk}<div class="ic${ci ? ' soft' : ''}" style="${ci ? icStyle(t.category) : 'background:' + colorOf(key)}">${ch}</div><div class="mid"><div class="t1">${title}</div>${t.splits ? parts + (noteOf(t) ? `<div class="t2">${esc(noteOf(t))}</div>` : '') : `<div class="t2">${sub}</div>`}</div><div class="amt ${sign(t.amount)}">${money(t.amount)}${run !== undefined ? `<small>${money(run)}</small>` : ''}${isFuture(t) ? '<small>Futuro · no cuenta</small>' : ''}</div></div>`;
+  return `<div class="row" data-tx="${t.id}"${fut}>${chk}<div class="ic${ci && !pi ? ' soft' : ''}" style="${pi ? 'background:transparent;box-shadow:none;font-size:22px' : ci ? icStyle(t.category) : 'background:' + colorOf(key)}">${ch}</div><div class="mid"><div class="t1">${title}</div>${t.splits ? parts + (noteOf(t) ? `<div class="t2">${esc(noteOf(t))}</div>` : '') : `<div class="t2">${sub}</div>`}</div><div class="amt ${sign(t.amount)}">${money(t.amount)}${run !== undefined ? `<small>${money(run)}</small>` : ''}${isFuture(t) ? '<small>Futuro · no cuenta</small>' : ''}</div></div>`;
 }
 
 /* ---------- Informes ---------- */
@@ -998,8 +1057,9 @@ function leafName(id, top){
 function rrow(t, amountOverride){
   const acc = accMap.get(t.account);
   const cl = t.splits ? '' : catText(t);
-  const ci = t.splits ? null : catIconOf(t.category);
-  return `<div class="rr" data-tx="${t.id}"><span class="rd">${esc(fmtDate(t.date))}</span>${ci ? `<span class="ri" style="${icStyle(t.category)}">${ci}</span>` : ''}<div class="mid"><div class="t1">${esc(describe(t))}</div><div class="t2">${esc(acc ? acc.name : '')}${t.desc && t.payee ? ' · ' + esc(t.payee) : ''}${t.desc && isLinkedRef(t) ? ' · Reembolso de ' + esc(exLabel(txMap.get(t.refundOf))) : ''}${cl && cl !== describe(t) ? ' · ' + esc(cl) : ''}${noteOf(t) ? ' · ' + esc(noteOf(t)) : ''}</div></div><div class="amt ${sign(t.amount)}">${money(amountOverride != null ? amountOverride : t.amount)}</div></div>`;
+  const pi = payIcon(t);
+  const ci = pi || (t.splits ? null : catIconOf(t.category));
+  return `<div class="rr" data-tx="${t.id}"><span class="rd">${esc(fmtDate(t.date))}</span>${ci ? `<span class="ri" style="${payIcon(t) ? 'background:transparent;box-shadow:none;font-size:18px' : icStyle(t.category)}">${ci}</span>` : ''}<div class="mid"><div class="t1">${esc(describe(t))}</div><div class="t2">${esc(acc ? acc.name : '')}${t.desc && t.payee ? ' · ' + esc(t.payee) : ''}${t.desc && isLinkedRef(t) ? ' · Reembolso de ' + esc(exLabel(txMap.get(t.refundOf))) : ''}${cl && cl !== describe(t) ? ' · ' + esc(cl) : ''}${noteOf(t) ? ' · ' + esc(noteOf(t)) : ''}</div></div><div class="amt ${sign(t.amount)}">${money(amountOverride != null ? amountOverride : t.amount)}</div></div>`;
 }
 function expRowFechas(t){
   if (t.splits && t.splits.length) {
@@ -2133,6 +2193,7 @@ function mergeData(inc){
     Object.keys(S.deleted[k] || {}).forEach(id => { if (vivos.has(id)) delete S.deleted[k][id]; });
   });
   S.payees = [...new Set([...(S.payees || []), ...(inc.payees || [])])];
+  S.payeeIcons = Object.assign({}, S.payeeIcons || {}, inc.payeeIcons || {});
   reindex();
   return st;
 }
@@ -2568,6 +2629,11 @@ function act(a){
   else if (a === 'selall') { VIS.forEach(id => SEL.add(id)); render(); }
   else if (a === 'selnone') { SEL.clear(); render(); }
   else if (a === 'selcat') selCatOpen();
+  else if (a === 'selpay') selPayOpen();
+  else if (a === 'bedsave') benEditSave();
+  else if (a === 'bedall') benIconAll();
+  else if (a === 'beddel') benDeleteBen(BEDIT);
+  else if (a === 'selpayapply') selPayApply();
   else if (a === 'selcatapply') selCatApply();
   else if (a === 'seldel') selDelete();
   else if (a === 'pdf') exportPdf();
@@ -2846,7 +2912,7 @@ document.addEventListener('click', e => {
   const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); return; }
   const k = t.closest('#kind button'); if (k) { FK = k.dataset.k; formUI(); return; }
   const bp = t.closest('[data-bpick]'); if (bp) { BR.who = bp.dataset.bpick; BQ = ''; render(); window.scrollTo(0,0); return; }
-  const be = t.closest('[data-bedit]'); if (be) { benEdit(be.dataset.bedit); return; }
+  const be = t.closest('[data-bedit]'); if (be) { benEditSheet(be.dataset.bedit); return; }
   const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab); return; }
   const mo = t.closest('[data-mo]'); if (mo) { f.month = shiftMonth(f.month, Number(mo.dataset.mo)); render(); return; }
   const ac = t.closest('[data-act]'); if (ac) { if (ac.dataset.act === 'duplicate') { const id = FID; if (id != null) openForm(id, true); return; } act(ac.dataset.act); return; }
