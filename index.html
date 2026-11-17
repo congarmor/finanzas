@@ -610,6 +610,13 @@ function benListHtml(){
   const resumen = `<div class="hero" style="margin:0 0 8px"><div class="l">Total pagado a ${rows.length} beneficiario${rows.length === 1 ? '' : 's'}</div><div class="v">${money(-totPag)}</div><div class="l" style="margin-top:8px">${totN} movimiento${totN === 1 ? '' : 's'}${totRec ? ' · recibido ' + money(totRec) : ''}</div></div>`;
   return resumen + rows.map(([n, r]) => `<div class="row" data-bpick="${esc(n)}">${benAvatar(n)}<div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${r.n} movimiento${r.n === 1 ? '' : 's'}${r.recibido ? ' · recibido ' + money(r.recibido) : ''}</div></div><div class="amt neg">${money(-r.pagado)}</div></div>`).join('');
 }
+function benGrafHtml(){
+  const {from, to} = benRange();
+  const rows = [...benTotals(from, to).entries()].filter(([n, r]) => r.n > 0 && r.pagado > 0)
+    .sort((a,b) => b[1].pagado - a[1].pagado).map(([n, r]) => ({label: n, v: r.pagado}));
+  if (!rows.length) return `<div class="empty">Ningún beneficiario tiene pagos entre ${fechaTxt(from)} y ${fechaTxt(to)}.</div>`;
+  return `<div class="card" style="padding:8px 12px"><div class="t2" style="padding:4px 0">Pagado por beneficiario</div>${svgHBars(rows)}</div>`;
+}
 function benDetailHtml(){
   const {from, to} = benRange();
   const who = BR.who;
@@ -676,9 +683,9 @@ function viewBenInforme(){
     + accs.map(a => `<label class="row" style="cursor:pointer"><input type="checkbox" data-bacc="${a.id}" ${BR.excl.has(a.id) ? '' : 'checked'} style="width:20px;height:20px;margin-right:12px"><div class="mid"><div class="t1">${esc(a.name)}</div></div></label>`).join('')
     + `</details>`;
   return fields + select + accBox
-    + `<div class="bar noprint" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="benxls">Exportar Excel</button><button class="btn" data-act="bencsv">Exportar CSV</button></div>`
+    + `<div class="bar noprint" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="graf">${GRAF ? 'Ver lista' : 'Ver gráfico'}</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="benxls">Exportar Excel</button><button class="btn" data-act="bencsv">Exportar CSV</button></div>`
     + `<input id="bq" class="field" type="search" placeholder="Buscar beneficiario…" value="${esc(BQ)}" autocomplete="off" autocapitalize="off">`
-    + `<div id="blist">${benListHtml()}</div>`
+    + `<div id="blist">${GRAF ? benGrafHtml() : benListHtml()}</div>`
     + `<div class="empty">Escribe las fechas a mano (dd/mm/aaaa) para cualquier año. Toca un beneficiario para ver sus movimientos.</div>`;
 }
 /* Ajustes → Beneficiarios: gestión (crear, renombrar, eliminar) */
@@ -924,7 +931,8 @@ function rowHtml(t, run){
     const cl = t.splits ? [...new Set(t.splits.map(s => catLabel(s.category)))].join(', ') : (t.category ? catLabel(t.category) : 'Sin categoría');
     title = esc(t.desc || t.payee || (t.splits ? 'Varias categorías' : (t.category ? cl : TYPE_LABEL[t.type])));
     const rs = t.type === 'gasto' ? refundsOf(t.id) : [];
-    const refTxt = rs.length ? 'reembolsado ' + money(rs.reduce((s,r) => s + r.amount, 0)) : '';
+    const refSum = rs.reduce((s,r) => s + r.amount, 0);
+    const refTxt = rs.length ? 'reembolsado ' + money(refSum) + ' · pendiente ' + money(Math.max(0, Math.abs(t.amount) - refSum)) : '';
     const isRef = t.type === 'reembolso' && txMap.has(t.refundOf);
     const same = !t.desc && !t.payee && !t.splits && !isRef && t.category;
     sub = [isRef ? 'Reembolso de ' + exLabel(txMap.get(t.refundOf)) : (same ? '' : cl), (t.desc && t.payee ? t.payee : ''), f.account ? '' : (acc ? acc.name : ''), refTxt, noteOf(t)].filter(Boolean).map(esc).join(' · ');
@@ -2202,7 +2210,7 @@ async function mergeImport(inc){
   if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
   setBackup(KEY + '-antes-fusion', JSON.stringify(S));
   const st = mergeData(inc); save(); closeForm(); render();
-  const lista = [st.revived && st.revived.length ? 'Recuperados (estaban borrados en este dispositivo): ' + st.revived.join(', ') : '', st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
+  const lista = [inc.exportedAt ? 'Copia exportada el ' + new Date(inc.exportedAt).toLocaleString('es-ES') : 'Copia sin fecha de exportación', st.revived && st.revived.length ? 'Recuperados (estaban borrados en este dispositivo): ' + st.revived.join(', ') : '', st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
   alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.` + (lista ? '\n\n' + lista : ''));
 }
 
@@ -2476,7 +2484,7 @@ async function importBankFile(file){
 }
 function stampNow(){ const n = new Date(); return n.getFullYear() + pad(n.getMonth()+1) + pad(n.getDate()) + pad(n.getHours()) + pad(n.getMinutes()); }
 function exportData(){
-  download(new Blob([JSON.stringify(S)], {type:'application/json'}), 'mis-finanzas-' + stampNow() + '.json');
+  download(new Blob([JSON.stringify(Object.assign({}, S, {exportedAt: new Date().toISOString()}))], {type:'application/json'}), 'mis-finanzas-' + stampNow() + '.json');
 }
 async function exportHtmlCopy(){
   const stamp = stampNow();
@@ -2613,6 +2621,7 @@ function act(a){
   else if (a === 'benedit') { if (BR.who) benEdit(BR.who); }
   else if (a === 'benall') { BR.who = null; render(); }
   else if (a === 'baccall') { BR.excl.clear(); render(); }
+  else if (a === 'graf') { GRAF = !GRAF; render(); }
   else if (a === 'benxls') benXls();
   else if (a === 'bencsv') benCsv();
   else if (a === 'baccdone') { BR.accOpen = false; render(); }
@@ -3271,10 +3280,53 @@ function viewCompare(){
   h += `<div class="empty">No cuentan los traspasos ni las inversiones; los reembolsos restan de la categoría del gasto.</div>`;
   return h;
 }
+let GRAF = false;
+function svgColumns(data){
+  const W = 640, H = 260, P = 36, n = data.length;
+  const max = Math.max(1, ...data.flatMap(d => [d.a, d.b]));
+  const gw = (W - P * 2) / Math.max(n, 1), bw = Math.max(3, Math.min(14, gw * 0.35)), base = H - P;
+  let g = '';
+  data.forEach((d, i) => {
+    const x = P + i * gw + gw / 2;
+    const ha = (d.a / max) * (base - 20), hb = (d.b / max) * (base - 20);
+    g += `<rect x="${(x - bw - 1).toFixed(1)}" y="${(base - ha).toFixed(1)}" width="${bw.toFixed(1)}" height="${ha.toFixed(1)}" rx="2" style="fill:var(--neg)"><title>${esc(d.label)} · gastos ${esc(money(d.a))}</title></rect>`;
+    g += `<rect x="${(x + 1).toFixed(1)}" y="${(base - hb).toFixed(1)}" width="${bw.toFixed(1)}" height="${hb.toFixed(1)}" rx="2" style="fill:var(--pos)"><title>${esc(d.label)} · ingresos ${esc(money(d.b))}</title></rect>`;
+    if (n <= 14 || i % Math.ceil(n / 12) === 0) g += `<text x="${x.toFixed(1)}" y="${base + 14}" font-size="10" text-anchor="middle" style="fill:var(--muted)">${esc(d.label)}</text>`;
+  });
+  g += `<line x1="${P}" x2="${W - P}" y1="${base}" y2="${base}" style="stroke:var(--sep)"/>`;
+  const leyenda = `<div class="t2" style="display:flex;gap:14px;justify-content:center;padding:4px 0"><span><b style="color:var(--neg)">■</b> Gastos</span><span><b style="color:var(--pos)">■</b> Ingresos</span></div>`;
+  return leyenda + `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${g}</svg>`;
+}
+function svgHBars(rows){
+  const W = 640, rh = 28, P = 150, H = rows.length * rh + 8;
+  const max = Math.max(1, ...rows.map(r => r.v));
+  let g = '';
+  rows.forEach((r, i) => {
+    const w = (W - P - 90) * (r.v / max), y = i * rh + 4;
+    g += `<text x="${P - 8}" y="${y + 14}" font-size="12" text-anchor="end" style="fill:var(--text)">${esc(r.label.length > 20 ? r.label.slice(0, 19) + '…' : r.label)}</text>`;
+    g += `<rect x="${P}" y="${y}" width="${w.toFixed(1)}" height="${rh - 8}" rx="4" style="fill:var(--neg)"><title>${esc(r.label)}: ${esc(money(r.v))}</title></rect>`;
+    g += `<text x="${(P + w + 6).toFixed(1)}" y="${y + 14}" font-size="11" style="fill:var(--muted)">${esc(money(r.v))}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${g}</svg>`;
+}
+function grafMensual(){
+  const list = reportRows();
+  const inc = incomeList(list), exp = expenseList(list);
+  const meses = new Map();
+  const get = m => { if (!meses.has(m)) meses.set(m, {a: 0, b: 0}); return meses.get(m); };
+  exp.forEach(t => { get(t.date.slice(0,7)).a += -t.amount; });
+  inc.forEach(t => { get(t.date.slice(0,7)).b += t.amount; });
+  return [...meses.entries()].sort((x, y) => x[0] < y[0] ? -1 : 1)
+    .map(([m, v]) => ({label: m.slice(5) + '/' + m.slice(2, 4), a: Math.max(0, v.a), b: Math.max(0, v.b)}));
+}
 function viewReports(){
   const tabs = `<div class="seg noprint"><button data-rtab="informe" class="${!BENREP && !CMP.on ? 'on' : ''}">Informe</button><button data-rtab="comparar" class="${!BENREP && CMP.on ? 'on' : ''}">Comparar periodos</button><button data-rtab="beneficiarios" class="${BENREP ? 'on' : ''}">Beneficiarios</button></div>`;
   if (BENREP) return tabs + viewBenInforme();
-  return tabs + (CMP.on ? viewCompare() : viewReportsMain());
+  if (CMP.on) return tabs + viewCompare();
+  const datos = GRAF ? grafMensual() : [];
+  const boton = `<div class="bar noprint" style="justify-content:flex-end"><button class="btn" data-act="graf">${GRAF ? 'Ver tabla' : 'Ver gráfico'}</button></div>`;
+  const grafico = GRAF ? (datos.length ? `<div class="card" style="padding:8px 12px">${svgColumns(datos)}</div>` : '<div class="empty">No hay movimientos en este informe para dibujar.</div>') : '';
+  return tabs + boton + grafico + viewReportsMain();
 }
 document.addEventListener('click', e => {
   const t = e.target;
