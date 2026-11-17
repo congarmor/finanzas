@@ -453,7 +453,8 @@ function reindex(){
   catMap = new Map(S.categories.map(c => [c.id, c]));
   accMap = new Map(S.accounts.map(a => [a.id, a]));
   S.transactions.forEach(t => { if (t.desc === undefined) t.desc = ''; });
-  payees = [...new Set(S.transactions.map(t => t.payee).filter(Boolean))].sort((a,b) => a.localeCompare(b,'es'));
+  if (!S.payees) S.payees = [];
+  payees = payeeNames();
 }
 function catPath(id){
   const parts = []; let c = catMap.get(id), guard = 0;
@@ -561,6 +562,158 @@ function newId(list){
   let id = Date.now() * 1000;
   while (used.has(id)) id += 1000;
   return id;
+}
+let BR = {from: '', to: '', who: null, excl: new Set(), accOpen: false};
+function benAccOk(t){ return !BR.excl.has(t.account); }
+let BQ = '';
+let BENREP = false;
+function payeeNames(){ return [...new Set([...(S.payees || []), ...S.transactions.map(t => t.payee).filter(Boolean)])].sort((a,b) => a.localeCompare(b,'es')); }
+function parseFecha(v){
+  const x = String(v || '').trim();
+  let m = x.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/), y, mo, d;
+  if (m) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  else { m = x.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (!m) return null; y = +m[1]; mo = +m[2]; d = +m[3]; }
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return y + '-' + pad(mo) + '-' + pad(d);
+}
+function fechaTxt(iso){ const [y,m,d] = iso.split('-'); return d + '/' + m + '/' + y; }
+function benRange(){ return {from: BR.from || (todayStr().slice(0,4) + '-01-01'), to: BR.to || todayStr()}; }
+function benTotals(from, to){
+  const tot = new Map(payeeNames().map(n => [n, {pagado:0, recibido:0, n:0}]));
+  S.transactions.forEach(t => {
+    if (!t.payee || isFuture(t) || t.date < from || t.date > to || !benAccOk(t)) return;
+    const r = tot.get(t.payee) || {pagado:0, recibido:0, n:0};
+    if (t.amount < 0) r.pagado += -t.amount; else r.recibido += t.amount;
+    r.n++; tot.set(t.payee, r);
+  });
+  return tot;
+}
+function benFilter(names){
+  const ws = nrm(BQ).split(/\s+/).map(w => w.replace(/[^a-z0-9]+/g, '')).filter(Boolean);
+  return names.filter(n => !ws.length || ws.every(w => nrm(n).includes(w)));
+}
+/* Informes: solo beneficiarios con movimientos en el periodo */
+function benListHtml(){
+  const {from, to} = benRange();
+  const tot = benTotals(from, to);
+  const rows = [...tot.entries()].filter(([n, r]) => r.n > 0 && benFilter([n]).length)
+    .sort((a,b) => (b[1].pagado - a[1].pagado) || a[0].localeCompare(b[0],'es'));
+  if (!rows.length) return `<div class="empty">Ningún beneficiario tiene movimientos entre ${fechaTxt(from)} y ${fechaTxt(to)}.</div>`;
+  const totPag = rows.reduce((a, [, r]) => a + r.pagado, 0), totRec = rows.reduce((a, [, r]) => a + r.recibido, 0), totN = rows.reduce((a, [, r]) => a + r.n, 0);
+  const resumen = `<div class="hero" style="margin:0 0 8px"><div class="l">Total pagado a ${rows.length} beneficiario${rows.length === 1 ? '' : 's'}</div><div class="v">${money(-totPag)}</div><div class="l" style="margin-top:8px">${totN} movimiento${totN === 1 ? '' : 's'}${totRec ? ' · recibido ' + money(totRec) : ''}</div></div>`;
+  return resumen + rows.map(([n, r]) => `<div class="row" data-bpick="${esc(n)}"><div class="ic" style="background:${colorOf(n)}">${esc((n||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${r.n} movimiento${r.n === 1 ? '' : 's'}${r.recibido ? ' · recibido ' + money(r.recibido) : ''}</div></div><div class="amt neg">${money(-r.pagado)}</div></div>`).join('');
+}
+function benDetailHtml(){
+  const {from, to} = benRange();
+  const who = BR.who;
+  const txs = S.transactions.filter(t => t.payee === who && !isFuture(t) && t.date >= from && t.date <= to && benAccOk(t)).sort(byDescTx);
+  const pagado = txs.filter(t => t.amount < 0).reduce((a,t) => a - t.amount, 0);
+  const recibido = txs.filter(t => t.amount > 0).reduce((a,t) => a + t.amount, 0);
+  const lines = txs.map(t => {
+    const acc = accMap.get(t.account);
+    return `<div class="rr" data-tx="${t.id}"><span class="rd">${esc(fechaTxt(t.date))}</span><div class="mid"><div class="t1">${esc(t.desc || (t.category ? catLabel(t.category) : TYPE_LABEL[t.type]) || '')}</div><div class="t2">${esc(acc ? acc.name : '')}${t.category ? ' · ' + esc(catLabel(t.category)) : ''}</div></div><div class="amt ${sign(t.amount)}">${money(t.amount)}</div></div>`;
+  }).join('');
+  return `<div class="bar"><button class="btn" data-act="benall">‹ Lista</button></div>`
+    + `<div class="hero"><div class="l">${esc(who)}</div><div class="v">${money(-pagado)}</div><div class="l" style="margin-top:8px">${txs.length} movimiento${txs.length === 1 ? '' : 's'}${recibido ? ' · recibido ' + money(recibido) : ''}</div></div>`
+    + (lines ? `<div class="card">${lines}</div>` : `<div class="empty">Sin movimientos en este periodo.</div>`);
+}
+/* Exportación del informe de beneficiarios (mismo formato que el resto de informes) */
+function benTable(){
+  const {from, to} = benRange();
+  const r2 = v => Math.round(v * 100) / 100;
+  const txs = S.transactions.filter(t => t.payee && !isFuture(t) && t.date >= from && t.date <= to && benAccOk(t) && (!BR.who || t.payee === BR.who))
+    .sort((a,b) => a.payee.localeCompare(b.payee,'es') || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const names = [...new Set(txs.map(t => t.payee))];
+  const rows = [];
+  rows.push(['Informe por beneficiario' + (BR.who ? ' · ' + BR.who : '')]);
+  rows.push(['Periodo', fechaTxt(from) + ' - ' + fechaTxt(to)]);
+  rows.push(['Cuentas', S.accounts.filter(a => !BR.excl.has(a.id)).map(a => a.name).join(', ')]);
+  rows.push([]);
+  rows.push(['Beneficiario', 'Movimientos', 'Total (€)', 'Recibido (€)']);
+  let totT = 0, totR = 0;
+  names.forEach(n => {
+    const l = txs.filter(t => t.payee === n);
+    const tot = l.reduce((a,t) => a + t.amount, 0);
+    const rec = l.filter(t => t.amount > 0).reduce((a,t) => a + t.amount, 0);
+    totT += tot; totR += rec;
+    rows.push([n, l.length, r2(tot), r2(rec)]);
+  });
+  rows.push(['Total', txs.length, r2(totT), r2(totR)]);
+  rows.push([]);
+  rows.push(['Beneficiario', 'Fecha', 'Descripción', 'Cuenta', 'Categoría', 'Importe (€)']);
+  txs.forEach(t => {
+    const acc = accMap.get(t.account);
+    rows.push([t.payee, fmtDate(t.date), t.desc || '', acc ? acc.name : '', t.category ? catLabel(t.category) : '', r2(t.amount)]);
+  });
+  return rows;
+}
+function benExportName(){ return (BR.who ? 'beneficiario-' + BR.who : 'beneficiarios') + '-' + todayStr(); }
+function benXls(){ xlsxWorkbook([{name: 'Beneficiarios', rows: benTable()}], benExportName() + '.xlsx'); }
+function benCsv(){
+  const q = v => { if (typeof v === 'number') return String(v).replace('.', ','); const x = String(v == null ? '' : v); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+  const csv = '\uFEFF' + benTable().map(r => r.map(q).join(';')).join('\r\n');
+  download(new Blob([csv], {type: 'text/csv;charset=utf-8'}), benExportName() + '.csv');
+}
+/* Pestaña Informes → Beneficiarios */
+function viewBenInforme(){
+  const {from, to} = benRange();
+  const fields = `<div class="fr" style="padding:10px 14px;gap:8px"><div style="flex:1"><div class="t2">Desde</div><input id="bfrom" class="field" inputmode="numeric" autocomplete="off" placeholder="dd/mm/aaaa" value="${fechaTxt(from)}"></div><div style="flex:1"><div class="t2">Hasta</div><input id="bto" class="field" inputmode="numeric" autocomplete="off" placeholder="dd/mm/aaaa" value="${fechaTxt(to)}"></div></div>`;
+  const names = payeeNames();
+  if (BR.who && names.includes(BR.who)) return fields + benDetailHtml();
+  BR.who = null;
+  const select = `<div class="fr" style="padding:0 14px 10px"><select id="bsel" class="field" style="width:100%"><option value="">Todos los beneficiarios</option>${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>`;
+  const accs = S.accounts.slice().sort((a,b) => a.name.localeCompare(b.name,'es'));
+  const nOk = accs.filter(a => !BR.excl.has(a.id)).length;
+  const accBox = `<details id="bacc" class="card" style="margin:0 14px 10px"${BR.accOpen ? ' open' : ''}><summary class="row" style="cursor:pointer;list-style:none"><div class="mid"><div class="t1">Cuentas</div><div class="t2">${nOk} de ${accs.length} incluidas</div></div></summary>`
+    + `<div class="bar" style="justify-content:space-between"><span><button class="btn" data-act="baccall">Todas</button><button class="btn" data-act="baccnone">Ninguna</button></span><button class="btn primary" data-act="baccdone">Listo</button></div>`
+    + accs.map(a => `<label class="row" style="cursor:pointer"><input type="checkbox" data-bacc="${a.id}" ${BR.excl.has(a.id) ? '' : 'checked'} style="width:20px;height:20px;margin-right:12px"><div class="mid"><div class="t1">${esc(a.name)}</div></div></label>`).join('')
+    + `</details>`;
+  return fields + select + accBox
+    + `<div class="bar noprint" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="benxls">Exportar Excel</button><button class="btn" data-act="bencsv">Exportar CSV</button></div>`
+    + `<input id="bq" class="field" type="search" placeholder="Buscar beneficiario…" value="${esc(BQ)}" autocomplete="off" autocapitalize="off">`
+    + `<div id="blist">${benListHtml()}</div>`
+    + `<div class="empty">Escribe las fechas a mano (dd/mm/aaaa) para cualquier año. Toca un beneficiario para ver sus movimientos.</div>`;
+}
+/* Ajustes → Beneficiarios: gestión (crear, renombrar, eliminar) */
+function benMgmtListHtml(){
+  const names = payeeNames();
+  const cnt = new Map(names.map(n => [n, 0]));
+  S.transactions.forEach(t => { if (t.payee) cnt.set(t.payee, (cnt.get(t.payee) || 0) + 1); });
+  const lista = benFilter(names);
+  if (!lista.length) return '<div class="empty">Ningún beneficiario coincide</div>';
+  return lista.map(n => `<div class="row" data-bedit="${esc(n)}"><div class="ic" style="background:${colorOf(n)}">${esc((n||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(n)}</div><div class="t2">${cnt.get(n)} movimiento${cnt.get(n) === 1 ? '' : 's'}</div></div></div>`).join('');
+}
+function viewBeneficiarios(){
+  if (!payeeNames().length) return `<div class="empty">Aún no hay beneficiarios. Pulsa "+ Beneficiario" o asígnalo en un movimiento.</div>`;
+  return `<input id="bq" class="field" type="search" placeholder="Buscar beneficiario…" value="${esc(BQ)}" autocomplete="off" autocapitalize="off">`
+    + `<div id="blist" class="card" style="margin-top:0">${benMgmtListHtml()}</div>`
+    + `<div class="empty">Toca un beneficiario para renombrarlo. Dejar el nombre vacío lo elimina de sus movimientos.</div>`;
+}
+async function benNew(){
+  const v = await uiPrompt('Nombre del beneficiario', '', 'Nuevo beneficiario', 'Guardar');
+  if (v == null) return;
+  const n = v.trim(); if (!n) return;
+  if (!(S.payees || []).includes(n)) S.payees = [...(S.payees || []), n];
+  save(); render();
+}
+async function benEdit(name){
+  const v = await uiPrompt('Nuevo nombre (vacío para eliminar)', name, 'Beneficiario', 'Guardar');
+  if (v == null) return;
+  const n = v.trim();
+  if (!n) {
+    const uses = S.transactions.filter(t => t.payee === name).length;
+    if (!await uiConfirm('¿Eliminar "' + name + '"? Se quitará de ' + uses + ' movimientos.', 'Eliminar beneficiario', 'Eliminar')) return;
+    S.transactions.forEach(t => { if (t.payee === name) t.payee = null; });
+    S.payees = (S.payees || []).filter(x => x !== name);
+    BR.who = null;
+  } else if (n !== name) {
+    S.transactions.forEach(t => { if (t.payee === name) t.payee = n; });
+    S.payees = [...new Set((S.payees || []).map(x => x === name ? n : x))];
+    if (!S.payees.includes(n)) S.payees.push(n);
+    BR.who = n;
+  }
+  save(); render();
 }
 function holdingValue(h){ return h.shares * h.price; }
 function accTotal(a, b){ let v = b.get(a.id) || 0; if (a.type === 'inversion') holdingsOf(a.id).forEach(h => { v += holdingValue(h); }); return v; }
@@ -1276,13 +1429,13 @@ function viewSettings(){
     <div class="row" data-act="export-json"><div class="mid"><div class="t1">Exportar copia (JSON)</div><div class="t2">Descarga una copia .json de tus datos</div></div></div>
     <div class="row" data-act="import"><div class="mid"><div class="t1">Importar copia</div><div class="t2">Añade lo que falte y actualiza lo que no hayas cambiado aquí. Tus cambios se mantienen</div></div></div>
     <div class="row" data-act="replace-import"><div class="mid"><div class="t1">Reemplazar todos los datos desde un JSON</div><div class="t2">Sustituye por completo la información de este dispositivo. Antes se guarda una copia recuperable.</div></div></div>
-    <div class="row" data-act="diag"><div class="mid"><div class="t1">Diagnóstico de saldos</div><div class="t2">Muestra los datos de Santander y de los apuntes recientes de este dispositivo</div></div></div>
     <div class="row" data-act="restorebak"><div class="mid"><div class="t1">Volver a la copia anterior</div><div class="t2">Deshace la última fusión, importación o reemplazo</div></div></div>
     <div class="row" data-act="import-bank"><div class="mid"><div class="t1">Importar extracto del banco</div><div class="t2">Excel (.xls/.xlsx) o PDF. Añade solo los movimientos que faltan y conserva las categorías ya asignadas</div></div></div>
     <div class="row" data-act="export-html"><div class="mid"><div class="t1">Exportar HTML (con los datos de este equipo)</div><div class="t2">Descarga una copia .html independiente que lleva dentro los datos de este dispositivo. No se genera junto al JSON</div></div></div>
   </div>
   <div class="sec"><span>Organización</span></div><div class="card">
     <div class="row" data-act="catsettings"><div class="mid"><div class="t1">Categorías</div><div class="t2">Crear, renombrar, mover o eliminar categorías</div></div></div>
+    <div class="row" data-act="benset"><div class="mid"><div class="t1">Beneficiarios</div><div class="t2">Crear, renombrar o eliminar, e informe de lo pagado o recibido</div></div></div>
   </div>
   <div class="sec"><span>Exportaciones generales</span></div><div class="card">
     <div class="row" data-act="export-all-xlsx"><div class="mid"><div class="t1">Excel completo (.xlsx)</div><div class="t2">Todas las entidades de la aplicación, organizadas en hojas.</div></div></div>
@@ -1296,6 +1449,9 @@ function viewSettings(){
   <div class="sec"><span>Inversiones</span></div><div class="card">
     <div class="row" data-act="prices"><div class="mid"><div class="t1">Actualizar precios</div><div class="t2">Consulta la cotización actual en la web</div></div></div>
     ${pmsg ? `<div class="t2" style="padding:8px 14px">${esc(pmsg)}</div>` : ''}
+  </div>
+  <div class="sec"><span>Herramientas</span></div><div class="card">
+    <div class="row" data-act="diag"><div class="mid"><div class="t1">Diagnóstico de saldos</div><div class="t2">Muestra los datos de Santander y de los apuntes recientes de este dispositivo</div></div></div>
   </div>
   <div class="sec"><span>Resumen</span></div><div class="card">
     <div class="row"><div class="mid"><div class="t1">Cuentas</div></div><div class="amt">${S.accounts.length}</div></div>
@@ -1480,6 +1636,7 @@ async function saveForm(){
   const desc = $('#f_desc').value.replace(/\s+/g, ' ').trim();
   const cat = Number($('#f_cat').value) || null;
   const pay = $('#f_pay').value.trim() || null;
+  if (pay && !(S.payees || []).includes(pay)) S.payees = [...(S.payees || []), pay];
   let refId = null;
   if (FK === 'reembolso') {
     refId = refIdFromLabel($('#f_ref').value);
@@ -1975,6 +2132,7 @@ function mergeData(inc){
     const vivos = new Set(list.map(x => String(x.id)));
     Object.keys(S.deleted[k] || {}).forEach(id => { if (vivos.has(id)) delete S.deleted[k][id]; });
   });
+  S.payees = [...new Set([...(S.payees || []), ...(inc.payees || [])])];
   reindex();
   return st;
 }
@@ -2389,6 +2547,15 @@ function act(a){
   else if (a === 'accedit') openAccForm(f.account);
   else if (a === 'accsave') saveAcc();
   else if (a === 'catnew') openCatForm(null);
+  else if (a === 'benset') go('beneficiarios');
+  else if (a === 'bennew') benNew();
+  else if (a === 'benedit') { if (BR.who) benEdit(BR.who); }
+  else if (a === 'benall') { BR.who = null; render(); }
+  else if (a === 'baccall') { BR.excl.clear(); render(); }
+  else if (a === 'benxls') benXls();
+  else if (a === 'bencsv') benCsv();
+  else if (a === 'baccdone') { BR.accOpen = false; render(); }
+  else if (a === 'baccnone') { S.accounts.forEach(x => BR.excl.add(x.id)); render(); }
   else if (a === 'catsave') saveCat();
   else if (a === 'catdel') deleteCat();
   else if (a === 'splitopen') splitOpen();
@@ -2598,7 +2765,7 @@ document.addEventListener('click', e => {
 
 function render(){
   $('#tabs').innerHTML = TABS.map(([k,g,l]) => `<button class="${(view === k || (k === 'ajustes' && view === 'categorias')) ? 'on' : ''}" data-tab="${k}"><span class="g">${g}</span>${l}</button>`).join('');
-  const titles = {inicio:'Pérdidas y ganancias', cuentas:'Cuentas', movimientos:'Movimientos', informes:'Pérdidas y ganancias', ajustes:'Ajustes', categorias:'Categorías'};
+  const titles = {inicio:'Pérdidas y ganancias', cuentas:'Cuentas', movimientos:'Movimientos', informes:'Pérdidas y ganancias', ajustes:'Ajustes', categorias:'Categorías', beneficiarios:'Beneficiarios'};
   let title = titles[view];
   if (view === 'movimientos' && f.account && accMap.get(f.account)) title = accMap.get(f.account).name;
   $('#title').textContent = title;
@@ -2609,17 +2776,43 @@ function render(){
     hact += `<button class="btn" data-act="selmode">${selMode ? 'Listo' : 'Seleccionar'}</button><button class="btn primary" data-act="new">+ Nuevo</button>`;
   } else if (view === 'cuentas') {
     hact = `<button class="btn" data-act="reorder">${reorder ? 'Listo' : 'Ordenar'}</button><button class="btn primary" data-act="accnew">+ Cuenta</button>`;
+  } else if (view === 'beneficiarios') {
+    hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn primary" data-act="bennew">+ Beneficiario</button>`;
   } else if (view === 'categorias') {
     hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn primary" data-act="catnew">+ Categoría</button>`;
   }
   $('#hact').innerHTML = hact;
   const banner = (MIGRATED ? `<div class="banner">Datos actualizados a la versión corregida. Tu copia anterior queda guardada en Ajustes. <button class="btn" data-act="dismiss">Entendido</button></div>` : '') + (storeOK ? '' : `<div class="banner">Este navegador no permite guardar datos aquí. Antes de cerrar, exporta una copia desde Ajustes.</div>`);
-  const body = (view === 'cuentas' || view === 'inicio') && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:8px">Importa tu copia JSON desde Ajustes para empezar en este dispositivo.</div><button class="btn primary" style="margin-top:14px;background:#fff;color:#075fc5" data-act="settings">Abrir Ajustes e importar copia</button></div>` : view === 'inicio' ? viewDash() : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : viewSettings();
+  const body = (view === 'cuentas' || view === 'inicio') && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:8px">Importa tu copia JSON desde Ajustes para empezar en este dispositivo.</div><button class="btn primary" style="margin-top:14px;background:#fff;color:#075fc5" data-act="settings">Abrir Ajustes e importar copia</button></div>` : view === 'inicio' ? viewDash() : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : view === 'beneficiarios' ? viewBeneficiarios() : viewSettings();
   $('#main').innerHTML = banner + body;
 }
 
 function refreshMoveSearch(){ const l=document.getElementById('list'); if(l) l.innerHTML=moveList(); const active=hasMoveSearch(); const q=document.getElementById('qsum'); if(q) q.innerHTML=active?qSummary():''; const x=document.querySelector('[data-clear-search="q"]'); if(x) x.style.visibility='visible'; }
 
+document.addEventListener('toggle', e => { if (e.target && e.target.id === 'bacc') BR.accOpen = e.target.open; }, true);
+/* Al tocar fuera del selector de cuentas, se pliega (sin volver a dibujar la pantalla) */
+document.addEventListener('click', e => {
+  const d = document.getElementById('bacc');
+  if (d && d.open && !d.contains(e.target)) { d.open = false; BR.accOpen = false; }
+}, true);
+document.addEventListener('change', e => {
+  if (e.target && e.target.dataset && e.target.dataset.bacc) {
+    const aid = Number(e.target.dataset.bacc);
+    if (e.target.checked) BR.excl.delete(aid); else BR.excl.add(aid);
+    render(); return;
+  }
+  const id = e.target && e.target.id;
+  if (id === 'bfrom' || id === 'bto') {
+    const iso = parseFecha(e.target.value);
+    if (!iso) alert('Fecha no válida. Escríbela como dd/mm/aaaa, por ejemplo 15/03/2019.');
+    else BR[id === 'bfrom' ? 'from' : 'to'] = iso;
+    render(); return;
+  }
+  if (id === 'bsel') { BR.who = e.target.value || null; BQ = ''; render(); return; }
+});
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'bq') { BQ = e.target.value; const l = document.getElementById('blist'); if (l) l.innerHTML = view === 'beneficiarios' ? benMgmtListHtml() : benListHtml(); }
+});
 document.addEventListener('click', e => {
   const t = e.target;
   if (t.closest('[data-pknewsave]')) { pkNewSave(); return; }
@@ -2652,6 +2845,8 @@ document.addEventListener('click', e => {
   const rex = t.closest('[data-rexp]'); if (rex) { const id = Number(rex.dataset.rexp); if (RCEXP.has(id)) RCEXP.delete(id); else RCEXP.add(id); const l = document.getElementById('rclist'); if (l) l.innerHTML = catPickInner(); return; }
   const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); return; }
   const k = t.closest('#kind button'); if (k) { FK = k.dataset.k; formUI(); return; }
+  const bp = t.closest('[data-bpick]'); if (bp) { BR.who = bp.dataset.bpick; BQ = ''; render(); window.scrollTo(0,0); return; }
+  const be = t.closest('[data-bedit]'); if (be) { benEdit(be.dataset.bedit); return; }
   const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab); return; }
   const mo = t.closest('[data-mo]'); if (mo) { f.month = shiftMonth(f.month, Number(mo.dataset.mo)); render(); return; }
   const ac = t.closest('[data-act]'); if (ac) { if (ac.dataset.act === 'duplicate') { const id = FID; if (id != null) openForm(id, true); return; } act(ac.dataset.act); return; }
@@ -3011,13 +3206,14 @@ function viewCompare(){
   return h;
 }
 function viewReports(){
-  const tabs = `<div class="seg noprint"><button data-rtab="informe" class="${CMP.on ? '' : 'on'}">Informe</button><button data-rtab="comparar" class="${CMP.on ? 'on' : ''}">Comparar periodos</button></div>`;
+  const tabs = `<div class="seg noprint"><button data-rtab="informe" class="${!BENREP && !CMP.on ? 'on' : ''}">Informe</button><button data-rtab="comparar" class="${!BENREP && CMP.on ? 'on' : ''}">Comparar periodos</button><button data-rtab="beneficiarios" class="${BENREP ? 'on' : ''}">Beneficiarios</button></div>`;
+  if (BENREP) return tabs + viewBenInforme();
   return tabs + (CMP.on ? viewCompare() : viewReportsMain());
 }
 document.addEventListener('click', e => {
   const t = e.target;
   const tab = t.closest('[data-rtab]');
-  if (tab) { e.stopPropagation(); CMP.on = tab.dataset.rtab === 'comparar'; render(); return; }
+  if (tab) { e.stopPropagation(); BENREP = tab.dataset.rtab === 'beneficiarios'; CMP.on = tab.dataset.rtab === 'comparar'; render(); return; }
   const nav = t.closest('[data-cmpnav]');
   if (nav) { e.stopPropagation(); CMP.ref = cmpShift(CMP.kind, CMP.ref, Number(nav.dataset.cmpnav)); render(); }
 }, true);
