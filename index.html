@@ -2520,21 +2520,24 @@ $('#replaceIn').addEventListener('change', e => {
   r.onload = async () => {
     let obj = null; try { obj = JSON.parse(r.result); } catch(err) {}
     if (!valid(obj)) { alert('El archivo no es una copia válida de esta app. No se ha cambiado ningún dato.'); e.target.value=''; return; }
-    if (!await uiConfirm('ATENCIÓN: se sustituirán TODOS los datos actuales de este dispositivo por los del archivo. No se conservará ninguna cuenta, movimiento, categoría, presupuesto, inversión ni ajuste que no esté en ese archivo. Se guardará una copia recuperable del estado actual antes de continuar. ¿Quieres reemplazarlo todo?')) { e.target.value=''; return; }
+    if (!await uiConfirm('ATENCIÓN: se sustituirán TODOS los datos actuales de este dispositivo por los del archivo. Para evitar el error de espacio, se eliminarán los datos y copias locales de esta aplicación antes de guardar el JSON nuevo. No se guardará una copia antigua dentro del navegador; conserva el archivo JSON original en Archivos. ¿Quieres reemplazarlo todo?')) { e.target.value=''; return; }
     try {
-      // Primero intentar conservar una copia, pero nunca permitir que las copias impidan importar.
-      const hadBackup = setBackup(KEY + '-antes-fusion', JSON.stringify(S));
+      // Reemplazo limpio: no duplicar el estado anterior, pues puede agotar la cuota de Safari.
+      // El JSON seleccionado queda como copia de seguridad externa en Archivos.
+      const keysToClear = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k === KEY || (k && k.startsWith(KEY + '-'))) keysToClear.push(k);
+      }
+      keysToClear.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
       S = JSON.parse(JSON.stringify(obj));
       S.dataVersion = DATA_VERSION;
       reindex();
-      // Eliminar copias antiguas y, si el almacenamiento sigue lleno, retirar el estado anterior
-      // antes de guardar el nuevo. El archivo JSON original sigue siendo recuperable desde Archivos.
-      pruneBackups(null);
-      try { localStorage.removeItem(KEY); } catch(e) {}
+      // Guardar únicamente los datos nuevos, sin copias ni estado anterior ocupando espacio.
       save();
-      if (!storeOK) throw new Error('el navegador sigue sin espacio. El JSON no se ha podido guardar; conserva el archivo e inténtalo tras liberar espacio de Safari.');
+      if (!storeOK) throw new Error('Safari sigue sin espacio para guardar este JSON. Conserva el archivo y libera almacenamiento de sitios web antes de volver a intentarlo.');
       closeForm(); render();
-      alert('Restauración completa realizada.' + (hadBackup ? ' Se intentó guardar una copia anterior, pero se priorizó liberar espacio para los datos nuevos.' : ' No había espacio para guardar una copia anterior; se han reemplazado los datos por el JSON.'));
+      alert('Reemplazo completo realizado. Se han guardado únicamente los datos del JSON. La copia anterior no se conserva en el navegador; mantén el archivo JSON original en Archivos.');
     } catch(err) { alert('No se pudo completar la restauración: ' + (err.message || err)); }
     e.target.value='';
   };
