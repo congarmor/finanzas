@@ -214,12 +214,12 @@ img{-webkit-user-drag:none;user-drag:none}
     <div class="row" data-act="diag"><div class="mid"><div class="t1">Diagnóstico de saldos</div><div class="t2">Muestra los datos de Santander y de los apuntes recientes de este dispositivo</div></div></div>
   </div>
   <div class="sec"><span>Resumen</span></div><div class="card">
-    <div class="row"><div class="mid"><div class="t1">Cuentas</div></div><div class="amt">14</div></div>
-    <div class="row"><div class="mid"><div class="t1">Movimientos</div></div><div class="amt">9954</div></div>
-    <div class="row"><div class="mid"><div class="t1">Categorías</div></div><div class="amt">181</div></div>
+    <div class="row"><div class="mid"><div class="t1">Cuentas</div></div><div class="amt">13</div></div>
+    <div class="row"><div class="mid"><div class="t1">Movimientos</div></div><div class="amt">9960</div></div>
+    <div class="row"><div class="mid"><div class="t1">Categorías</div></div><div class="amt">182</div></div>
   </div>
   <div class="empty">Los datos se guardan en este navegador. Para usarlos en otro dispositivo, exporta una copia aquí y, en el otro, impórtala.</div></main>
-<nav class="tabs" id="tabs"><button class="" data-tab="inicio"><span class="g">📈</span>P y G</button><button class="" data-tab="cuentas"><span class="g">🏦</span>Cuentas</button><button class="" data-tab="movimientos"><span class="g">📋</span>Movimientos</button><button class="" data-tab="informes"><span class="g">📊</span>Informes</button><button class="on" data-tab="ajustes"><span class="g">⚙️</span>Ajustes</button></nav>
+<nav class="tabs" id="tabs"><button class="" data-tab="inicio"><span class="g">📈</span>P y G</button><button class="" data-tab="cuentas"><span class="g">🏦</span>Cuentas</button><button class="" data-tab="informes"><span class="g">📊</span>Informes</button><button class="on" data-tab="ajustes"><span class="g">⚙️</span>Ajustes</button></nav>
 <div id="ov" class=""><div id="sheet"></div></div>
 <input type="file" id="fileIn" accept="application/json,.json" class="hide"><input type="file" id="replaceIn" accept="application/json,.json" class="hide">
 
@@ -245,7 +245,7 @@ function uiConfirm(msg,title,ok){return uiDialog({msg:msg,title:title,ok:ok||'Ac
 window.alert=function(msg){uiDialog({msg:String(msg),cancel:null});};
 </script>
 <script>
-const SEED = {"version":1,"dataVersion":6,"accounts":[],"categories":[],"transactions":[],"holdings":[],"accountOrder":[],"reports":[],"mintosSnapshots":[],"deleted":{},"touched":{}};
+const SEED = null;
 
 const KEY = 'mw-control-v1';
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', useGrouping:true});
@@ -1225,10 +1225,24 @@ const PDF_LIBS = [
 ];
 function loadScriptOnce(url){
   return new Promise((ok, ko) => {
-    if (document.querySelector('script[data-src="' + url + '"]')) return ok();
-    const s = document.createElement('script');
+    const ready = () => {
+      if (url.includes('xlsx.full.min.js')) return !!window.XLSX;
+      if (url.includes('pdf.min.js')) return !!window.pdfjsLib;
+      if (url.includes('html2canvas')) return !!window.html2canvas;
+      if (url.includes('jspdf')) return !!(window.jspdf && window.jspdf.jsPDF);
+      return false;
+    };
+    if (ready()) return ok();
+    let s = document.querySelector('script[data-src="' + url + '"]');
+    if (s) {
+      s.addEventListener('load', () => ready() ? ok() : ko(new Error('La biblioteca no se ha inicializado: ' + url)), {once:true});
+      s.addEventListener('error', () => ko(new Error('No se pudo cargar ' + url)), {once:true});
+      return;
+    }
+    s = document.createElement('script');
     s.src = url; s.async = true; s.dataset.src = url;
-    s.onload = ok; s.onerror = () => ko(new Error('No se pudo cargar ' + url));
+    s.onload = () => ready() ? ok() : ko(new Error('La biblioteca no se ha inicializado: ' + url));
+    s.onerror = () => ko(new Error('No se pudo cargar ' + url));
     document.head.appendChild(s);
   });
 }
@@ -2358,12 +2372,21 @@ const PDFJS_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.mi
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 function ensureBankInput(){
   let inp = document.getElementById('bankIn');
-  if (inp) return inp;
-  inp = document.createElement('input');
-  inp.type = 'file'; inp.id = 'bankIn'; inp.className = 'hide';
-  inp.accept = '.xls,.xlsx,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  inp.addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importBankFile(f); });
-  document.body.appendChild(inp);
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file'; inp.id = 'bankIn'; inp.className = 'hide';
+    inp.accept = '.xls,.xlsx,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    document.body.appendChild(inp);
+  }
+  // El HTML ya puede incluir #bankIn; conectar el evento también en ese caso.
+  if (inp.dataset.bankImportBound !== '1') {
+    inp.addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) importBankFile(f);
+    });
+    inp.dataset.bankImportBound = '1';
+  }
   return inp;
 }
 function bankDate(v){
