@@ -506,8 +506,34 @@ function isFuture(t){ return t.date > todayStr(); }
 function included(a){ return (a.inNetWorth || a.type === 'inversion') && !a.archived; }
 let pmsg = '';
 let reorder = false;
+function getAccountGroups(){
+  const def = ['Entidades', 'Efectivo y tarjetas', 'Inversiones'];
+  let list = (S.accountGroups && Array.isArray(S.accountGroups) && S.accountGroups.length) ? [...S.accountGroups] : [...def];
+  const seen = new Set();
+  list = list.map(s => String(s || '').trim()).filter(s => {
+    if (!s || s.toLowerCase() === 'fuera del patrimonio' || s.toLowerCase() === 'archivadas') return false;
+    const l = s.toLowerCase();
+    if (seen.has(l)) return false;
+    seen.add(l);
+    return true;
+  });
+  S.accounts.forEach(a => {
+    const g = a.group || (a.type === 'inversion' ? 'Inversiones' : 'Entidades');
+    if (g && g.toLowerCase() !== 'fuera del patrimonio' && g.toLowerCase() !== 'archivadas' && !seen.has(g.toLowerCase())) {
+      seen.add(g.toLowerCase());
+      list.push(g);
+    }
+  });
+  def.forEach(d => {
+    if (!seen.has(d.toLowerCase())) {
+      seen.add(d.toLowerCase());
+      list.push(d);
+    }
+  });
+  return list;
+}
 function ordered(){ const pos = new Map((S.accountOrder || []).map((id,i) => [id,i])); return [...S.accounts].sort((a,b) => (pos.has(a.id) ? pos.get(a.id) : 1e9) - (pos.has(b.id) ? pos.get(b.id) : 1e9)); }
-function secKey(a){ return a.archived ? 'arch' : !included(a) ? 'fuera' : a.type === 'inversion' ? 'inv' : a.group === 'Entidades' ? 'ent' : 'efe'; }
+function secKey(a){ return a.archived ? 'arch' : !included(a) ? 'fuera' : a.type === 'inversion' ? 'inv' : 'grp_' + String(a.group || 'Entidades').toLowerCase(); }
 function moveAcc(id, dir){
   const list = ordered();
   const i = list.findIndex(a => a.id === id); if (i < 0) return;
@@ -518,6 +544,106 @@ function moveAcc(id, dir){
   const ids = list.map(a => a.id);
   [ids[i], ids[j]] = [ids[j], ids[i]];
   S.accountOrder = ids; save(); render();
+}
+function moveGroup(name, dir){
+  const grps = getAccountGroups();
+  const idx = grps.findIndex(g => g.toLowerCase() === String(name).toLowerCase());
+  if (idx < 0) return;
+  const target = idx + dir;
+  if (target < 0 || target >= grps.length) return;
+  const item = grps.splice(idx, 1)[0];
+  grps.splice(target, 0, item);
+  S.accountGroups = grps;
+  save(); render();
+}
+function openNewGroupPrompt(){
+  $('#sheet').innerHTML = `
+    <div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Nuevo grupo de cuentas</strong><button class="btn primary" data-act="savegrpnew">Crear</button></div>
+    <div class="fld"><div class="fr"><label>Nombre del grupo</label><input id="grp_name_input" class="field" placeholder="Ej. Bancos, Ahorro, Empresa…" style="text-align:left" autocomplete="off"></div></div>
+    <div class="empty">El grupo aparecerá en la pantalla principal y podrás asignarle cuentas al crearlas o editarlas.</div>`;
+  $('#ov').classList.add('on');
+  setTimeout(() => { const i = document.getElementById('grp_name_input'); if (i) i.focus(); }, 50);
+}
+function saveNewGroup(){
+  const name = ($('#grp_name_input') || {}).value?.trim();
+  if (!name) { alert('Escribe el nombre del grupo'); return; }
+  if (name.toLowerCase() === 'fuera del patrimonio' || name.toLowerCase() === 'archivadas') {
+    alert('Ese nombre está reservado para el sistema'); return;
+  }
+  const grps = getAccountGroups();
+  if (grps.some(g => g.toLowerCase() === name.toLowerCase())) {
+    alert('Ya existe un grupo con ese nombre'); return;
+  }
+  grps.push(name);
+  S.accountGroups = grps;
+  save(); closeForm(); render();
+}
+function openGroupManager(){
+  const grps = getAccountGroups();
+  const accCounts = new Map();
+  S.accounts.forEach(a => {
+    const g = a.type === 'inversion' ? 'Inversiones' : (a.group || 'Entidades');
+    accCounts.set(g.toLowerCase(), (accCounts.get(g.toLowerCase()) || 0) + 1);
+  });
+  let html = `
+    <div class="hd"><button class="btn" data-act="cancel">Cerrar</button><strong>Ordenar grupos</strong><button class="btn primary" data-act="grpnew">+ Nuevo</button></div>
+    <div class="fld">`;
+  grps.forEach((g, i) => {
+    const cnt = accCounts.get(g.toLowerCase()) || 0;
+    const isUp = i > 0;
+    const isDn = i < grps.length - 1;
+    const isFixed = g === 'Inversiones';
+    html += `
+      <div class="fr" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-weight:600">${esc(g)}</div>
+          <div class="t2">${cnt} ${cnt === 1 ? 'cuenta' : 'cuentas'}</div>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn" data-act="mgr-grpup" data-grp="${esc(g)}" ${!isUp ? 'disabled' : ''} style="min-width:32px;padding:4px 8px">▲</button>
+          <button class="btn" data-act="mgr-grpdn" data-grp="${esc(g)}" ${!isDn ? 'disabled' : ''} style="min-width:32px;padding:4px 8px">▼</button>
+          ${!isFixed ? `<button class="btn" data-act="mgr-grpren" data-grp="${esc(g)}" style="padding:4px 8px" title="Renombrar">✎</button><button class="btn danger" data-act="mgr-grpdel" data-grp="${esc(g)}" style="padding:4px 8px" title="Eliminar">✕</button>` : ''}
+        </div>
+      </div>`;
+  });
+  html += `</div>
+    <div class="empty">Usa ▲ y ▼ para cambiar el orden de los grupos en la pantalla principal. Al eliminar un grupo, sus cuentas pasan al grupo «Entidades».</div>`;
+  $('#sheet').innerHTML = html;
+  $('#ov').classList.add('on');
+}
+async function renameGroupPrompt(oldName){
+  const newName = prompt('Nuevo nombre para el grupo "' + oldName + '":', oldName);
+  if (!newName || !newName.trim() || newName.trim() === oldName) return;
+  const trimmed = newName.trim();
+  if (trimmed.toLowerCase() === 'fuera del patrimonio' || trimmed.toLowerCase() === 'archivadas') {
+    alert('Ese nombre está reservado'); return;
+  }
+  const grps = getAccountGroups();
+  if (grps.some(g => g.toLowerCase() === trimmed.toLowerCase() && g.toLowerCase() !== oldName.toLowerCase())) {
+    alert('Ya existe un grupo con ese nombre'); return;
+  }
+  const idx = grps.findIndex(g => g.toLowerCase() === oldName.toLowerCase());
+  if (idx >= 0) grps[idx] = trimmed;
+  S.accountGroups = grps;
+  S.accounts.forEach(a => {
+    if ((a.group || '').toLowerCase() === oldName.toLowerCase()) {
+      a.group = trimmed;
+      touch('acc', a.id);
+    }
+  });
+  save(); openGroupManager(); render();
+}
+async function deleteGroupConfirm(grpName){
+  if (!await uiConfirm('¿Eliminar el grupo "' + grpName + '"? Las cuentas pertenecientes a este grupo pasarán al grupo «Entidades».')) return;
+  const grps = getAccountGroups().filter(g => g.toLowerCase() !== grpName.toLowerCase());
+  S.accountGroups = grps;
+  S.accounts.forEach(a => {
+    if ((a.group || '').toLowerCase() === grpName.toLowerCase()) {
+      a.group = 'Entidades';
+      touch('acc', a.id);
+    }
+  });
+  save(); openGroupManager(); render();
 }
 function trend(v){ const r = Math.round(v*100)/100; return r > 0 ? 'pos' : r < 0 ? 'neg' : ''; }
 function fmtNumber(v, min=0, max=2){ return Number(v||0).toLocaleString('es-ES', {useGrouping:true, minimumFractionDigits:min, maximumFractionDigits:max}); }
@@ -787,29 +913,46 @@ function viewAccounts(){
   const inc = ordered().filter(included);
   const efectivo = inc.filter(a => a.type !== 'inversion').reduce((s,a) => s + accTotal(a,b), 0);
   const inv = inc.filter(a => a.type === 'inversion').reduce((s,a) => s + accTotal(a,b), 0);
-  const groups = [
-    ['Entidades', a => included(a) && a.type !== 'inversion' && a.group === 'Entidades', true],
-    ['Efectivo y tarjetas', a => included(a) && a.type !== 'inversion' && a.group !== 'Entidades', true],
-    ['Inversiones', a => included(a) && a.type === 'inversion', true],
-    ['Fuera del patrimonio · no suma', a => !included(a) && !a.archived, false],
-    ['Archivadas · no suma', a => a.archived, false]
-  ];
-  let h = `<div class="bar" style="justify-content:flex-end"><button class="btn" data-act="reorder">${reorder ? 'Listo' : 'Ordenar cuentas'}</button></div><div class="hero"><div class="l">Patrimonio neto</div><div class="v">${money(efectivo + inv)}</div><div class="l" style="margin-top:8px">Efectivo ${money(efectivo)} · Inversiones ${money(inv)}</div></div>`;
+  const grpNames = getAccountGroups();
+  const groups = [];
+  for (const g of grpNames) {
+    if (g === 'Inversiones') {
+      groups.push([g, a => included(a) && a.type === 'inversion', true]);
+    } else {
+      groups.push([g, a => included(a) && a.type !== 'inversion' && (a.group || 'Entidades').toLowerCase() === g.toLowerCase(), true]);
+    }
+  }
+  groups.push(['Fuera del patrimonio · no suma', a => !included(a) && !a.archived, false]);
+  groups.push(['Archivadas · no suma', a => a.archived, false]);
+
+  let h = `<div class="bar" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+    <div style="display:flex;gap:6px">
+      <button class="btn" data-act="grpnew">+ Nuevo grupo</button>
+      <button class="btn" data-act="grpmgr">Ordenar grupos</button>
+    </div>
+    <button class="btn ${reorder ? 'primary' : ''}" data-act="reorder">${reorder ? 'Listo' : 'Ordenar cuentas'}</button>
+  </div><div class="hero"><div class="l">Patrimonio neto</div><div class="v">${money(efectivo + inv)}</div><div class="l" style="margin-top:8px">Efectivo ${money(efectivo)} · Inversiones ${money(inv)}</div></div>`;
   for (const [title, fn, withSum] of groups) {
     const list = ordered().filter(fn);
-    if (!list.length) continue;
+    if (!list.length && !reorder) continue;
     const sum = list.reduce((s,a) => s + accTotal(a,b), 0);
-    h += `<div class="sec"><span>${title}</span>${withSum ? `<span>${money(sum)}</span>` : ''}</div><div class="card">`;
-    h += list.map(a => {
-      const v = accTotal(a,b);
-      const tags = [a.archived ? 'archivada' : '', !included(a) ? 'fuera del patrimonio' : ''].filter(Boolean).join(' · ');
-      const mv = reorder ? `<div style="display:flex;flex-direction:column"><button class="btn" data-move="-1" data-acc="${a.id}">▲</button><button class="btn" data-move="1" data-acc="${a.id}">▼</button></div>` : '';
-      let r = `<div class="row" ${reorder ? `draggable="true" data-drag="${a.id}" style="cursor:grab"` : `data-go="movimientos" data-acc="${a.id}"`}>${bankLogo(a) || `<div class="ic" style="background:${colorOf(a.name)}">${esc((a.name||'?')[0].toUpperCase())}</div>`}<div class="mid"><div class="t1">${esc(a.name)}</div><div class="t2">${esc(ACC_LABEL[a.type] || '')}${tags ? ' · ' + tags : ''}</div><div class="t2">Saldo inicial: ${money(Number(a.opening) || 0)}</div></div><div style="text-align:right;min-width:100px"><div class="amt ${sign(v)}">${money(v)}</div><div class="t2">Saldo actual</div></div>${mv}</div>`;
-      if (a.type === 'inversion') {
-        r += holdingsOf(a.id).map(x => { const ht = holdingText(x); return `<div class="row" data-hprice="${x.id}" style="padding:8px 14px 8px 60px;min-height:0;background:var(--bg)"><div class="mid"><div class="t2">${ht.mid}</div><div class="t2">${ht.line2}</div><div class="price-date">Actualizado: ${ht.priceDate}</div></div><div class="amt">${ht.amt}</div></div>`; }).join('');
-      }
-      return r;
-    }).join('');
+    const canMoveGrp = grpNames.some(g => g.toLowerCase() === title.toLowerCase());
+    const grpMv = (reorder && canMoveGrp) ? `<div style="display:flex;gap:4px;align-items:center"><button class="btn" data-move-grp="-1" data-grp="${esc(title)}" title="Subir grupo" style="padding:2px 8px;font-size:12px">▲ Grupo</button><button class="btn" data-move-grp="1" data-grp="${esc(title)}" title="Bajar grupo" style="padding:2px 8px;font-size:12px">▼ Grupo</button></div>` : '';
+    h += `<div class="sec" style="display:flex;justify-content:space-between;align-items:center"><span>${esc(title)}</span><div style="display:flex;gap:8px;align-items:center">${grpMv}${withSum ? `<span>${money(sum)}</span>` : ''}</div></div><div class="card">`;
+    if (!list.length) {
+      h += `<div class="empty" style="padding:10px 14px">Grupo vacío. Puedes mover cuentas aquí al editarlas.</div>`;
+    } else {
+      h += list.map(a => {
+        const v = accTotal(a,b);
+        const tags = [a.archived ? 'archivada' : '', !included(a) ? 'fuera del patrimonio' : ''].filter(Boolean).join(' · ');
+        const mv = reorder ? `<div style="display:flex;flex-direction:column"><button class="btn" data-move="-1" data-acc="${a.id}">▲</button><button class="btn" data-move="1" data-acc="${a.id}">▼</button></div>` : '';
+        let r = `<div class="row" ${reorder ? `draggable="true" data-drag="${a.id}" style="cursor:grab"` : `data-go="movimientos" data-acc="${a.id}"`}>${bankLogo(a) || `<div class="ic" style="background:${colorOf(a.name)}">${esc((a.name||'?')[0].toUpperCase())}</div>`}<div class="mid"><div class="t1">${esc(a.name)}</div><div class="t2">${esc(ACC_LABEL[a.type] || '')}${tags ? ' · ' + tags : ''}</div><div class="t2">Saldo inicial: ${money(Number(a.opening) || 0)}</div></div><div style="text-align:right;min-width:100px"><div class="amt ${sign(v)}">${money(v)}</div><div class="t2">Saldo actual</div></div>${mv}</div>`;
+        if (a.type === 'inversion') {
+          r += holdingsOf(a.id).map(x => { const ht = holdingText(x); return `<div class="row" data-hprice="${x.id}" style="padding:8px 14px 8px 60px;min-height:0;background:var(--bg)"><div class="mid"><div class="t2">${ht.mid}</div><div class="t2">${ht.line2}</div><div class="price-date">Actualizado: ${ht.priceDate}</div></div><div class="amt">${ht.amt}</div></div>`; }).join('');
+        }
+        return r;
+      }).join('');
+    }
     h += '</div>';
   }
   h += `<div class="empty">${esc(pmsg)}${S.holdings && S.holdings.length ? ' <button class="btn" data-act="prices">Actualizar precios</button>' : ''}</div>`;
@@ -824,7 +967,26 @@ function qSummary(){
   return `<div class="card" style="margin:8px 12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div class="t1">${list.length} apuntes</div><div class="t2">Total <span class="${sign(tot)}"><strong>${money(tot)}</strong></span></div></div><button class="btn" data-act="toreport">Ver como informe</button></div>`;
 }
 function selBar(){
-  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-act="selall">Todas las visibles (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn" data-act="selcat">Cambiar categoría</button><button class="btn" data-act="selpay">Beneficiario</button><button class="btn danger" data-act="seldel">Eliminar</button></div></div>`;
+  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-act="selall">Todas (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn" data-act="selacc">Cuenta</button><button class="btn" data-act="selcat">Categoría</button><button class="btn" data-act="selpay">Beneficiario</button><button class="btn" data-act="selnote">Notas</button><button class="btn" data-act="seldate">Fecha</button><button class="btn danger" data-act="seldel">Eliminar</button></div></div>`;
+}
+function selAccOpen(){
+  if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
+  const accs = ordered().filter(a => !a.archived);
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Cambiar cuenta</strong><button class="btn primary" data-act="selaccapply">Aplicar</button></div>
+    <div class="fld"><div class="fr"><label>Cuenta de destino</label><select id="sa_acc" class="field" style="text-align:left">${accs.map(a => `<option value="${a.id}">${esc(a.name)} (${esc(ACC_LABEL[a.type] || a.type)})</option>`).join('')}</select></div></div>
+    <div class="empty">Se cambiará la cuenta de ${SEL.size} apuntes seleccionados. Las transferencias entre cuentas no se modifican para preservar su coherencia.</div>`;
+  $('#ov').classList.add('on');
+}
+function selAccApply(){
+  const accId = Number($('#sa_acc').value);
+  if (!accId || !accMap.has(accId)) { alert('Selecciona una cuenta válida'); return; }
+  S.transactions.forEach(t => {
+    if (SEL.has(t.id) && t.type !== 'transferencia') {
+      t.account = accId;
+      touch('tx', t.id);
+    }
+  });
+  SEL.clear(); save(); closeForm(); reindex(); render();
 }
 function selCatOpen(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
@@ -837,6 +999,65 @@ function selPayOpen(){
   FICON = null;
   $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Asignar beneficiario</strong><button class="btn primary" data-act="selpayapply">Aplicar</button></div><div class="fld"><div class="fr"><label>Beneficiario</label><input id="sp_pay" class="field" list="sp_list" autocomplete="off" placeholder="Escribe o elige uno"><datalist id="sp_list">${nombres.map(n => `<option value="${esc(n)}">`).join('')}</datalist></div></div><div class="fld"><div class="fr" style="align-items:flex-start"><label>Icono</label><div id="iconpick" style="display:flex;flex-wrap:wrap;gap:6px">${iconPickHtml()}</div></div></div><div class="empty">Se aplicará a ${SEL.size} apuntes. Con un icono elegido, estos apuntes muestran ese icono aunque su categoría tenga otro color. «Auto» no cambia el icono. Deja el beneficiario vacío para quitarlo de esos apuntes.</div>`;
   $('#ov').classList.add('on');
+}
+function selNoteOpen(){
+  if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Modificar notas</strong><button class="btn primary" data-act="selnoteapply">Aplicar</button></div>
+    <div class="fld">
+      <div class="fr"><label>Acción</label><select id="sn_mode" class="field" style="text-align:left"><option value="replace">Reemplazar notas</option><option value="append">Añadir al final de la nota actual</option><option value="prepend">Añadir al principio de la nota actual</option><option value="clear">Borrar todas las notas</option></select></div>
+      <div class="fr" id="sn_text_row" style="align-items:flex-start"><label>Texto</label><textarea id="sn_note" class="field" rows="3" placeholder="Escribe la nota…" style="text-align:left;resize:vertical"></textarea></div>
+    </div>
+    <div class="empty">Se aplicará a ${SEL.size} apuntes seleccionados.</div>`;
+  $('#ov').classList.add('on');
+  const sel = $('#sn_mode');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      const row = $('#sn_text_row');
+      if (row) row.style.display = sel.value === 'clear' ? 'none' : 'flex';
+    });
+  }
+}
+function selNoteApply(){
+  const mode = ($('#sn_mode') || {}).value || 'replace';
+  const text = ($('#sn_note') || {}).value != null ? $('#sn_note').value.trim() : '';
+  S.transactions.forEach(t => {
+    if (SEL.has(t.id)) {
+      if (mode === 'clear') {
+        t.note = '';
+      } else if (mode === 'replace') {
+        t.note = text;
+      } else if (mode === 'append') {
+        t.note = t.note ? (t.note + (text ? '\n' + text : '')) : text;
+      } else if (mode === 'prepend') {
+        t.note = t.note ? (text ? text + '\n' + t.note : t.note) : text;
+      }
+      touch('tx', t.id);
+    }
+  });
+  SEL.clear(); save(); closeForm(); reindex(); render();
+}
+function selDateOpen(){
+  if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
+  $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Cambiar fecha</strong><button class="btn primary" data-act="seldateapply">Aplicar</button></div>
+    <div class="fld"><div class="fr"><label>Nueva fecha</label><input type="date" id="sd_date" value="${todayStr()}" style="text-align:left"></div></div>
+    <div class="empty">Se cambiará la fecha de ${SEL.size} apuntes seleccionados. Si incluye transferencias, su contrapartida vinculada mantendrá coherencia.</div>`;
+  $('#ov').classList.add('on');
+}
+function selDateApply(){
+  const dt = ($('#sd_date') || {}).value;
+  if (!dt) { alert('Selecciona una fecha'); return; }
+  S.transactions.forEach(t => {
+    if (SEL.has(t.id)) {
+      t.date = dt;
+      touch('tx', t.id);
+      if (t.pair != null && txMap.has(t.pair)) {
+        const p = txMap.get(t.pair);
+        p.date = dt;
+        touch('tx', p.id);
+      }
+    }
+  });
+  SEL.clear(); save(); closeForm(); reindex(); render();
 }
 function selPayApply(){
   const nombre = ($('#sp_pay').value || '').trim() || null;
@@ -1377,13 +1598,13 @@ function catCountText(){ return R.cats.size ? R.cats.size + ' elegidas' : 'Sin f
 function catPickInner(){
   const q = nrm(RCQ).trim();
   const byName = (a, b) => a.name.localeCompare(b.name, 'es');
-  const subsOf = id => S.categories.filter(c => c.parent === id).sort(byName);
+  const allKidsOf = id => descendantsOf(id).map(x => catMap.get(x)).filter(Boolean).sort((a,b) => catPath(a.id).localeCompare(catPath(b.id),'es'));
   const hit = c => !q || nrm(catPath(c.id)).includes(q);
   const tops = S.categories.filter(isTop).sort(byName);
   let h = '<div class="rc-grid">';
   let shown = 0;
   tops.forEach(c => {
-    const subs = subsOf(c.id);
+    const subs = allKidsOf(c.id);
     if (!(hit(c) || subs.some(hit))) return;
     shown++;
     const on = R.cats.has(c.id);
@@ -1398,7 +1619,11 @@ function catPickInner(){
     if (open && subs.length) {
       const list = subs.filter(x => !q || hit(x) || hit(c));
       const inc = y => R.cats.has(y) || ancestorInCats(y) != null;
-      h += `<div class="card rc-subs">` + list.map(x => `<div class="row" data-rc="${x.id}" style="min-height:42px"><span class="chk ${inc(x.id) ? 'on' : ''}">✓</span><div class="mid"><div class="t1">${esc(x.name)}</div>${!R.cats.has(x.id) && inc(x.id) ? '<div class="t2">Incluida con la principal · toca para quitarla</div>' : ''}</div></div>`).join('') + `</div>`;
+      h += `<div class="card rc-subs">` + list.map(x => {
+        const p = catPath(x.id);
+        const rel = p.startsWith(c.name + ' › ') ? p.slice(c.name.length + 3) : x.name;
+        return `<div class="row" data-rc="${x.id}" style="min-height:42px"><span class="chk ${inc(x.id) ? 'on' : ''}">✓</span><div class="mid"><div class="t1">${esc(rel)}</div>${!R.cats.has(x.id) && inc(x.id) ? '<div class="t2">Incluida con la principal · toca para quitarla</div>' : ''}</div></div>`;
+      }).join('') + `</div>`;
     }
   });
   h += '</div>';
@@ -1594,11 +1819,14 @@ function pkOpen(sel, cb, o){
 function pkNewForm(){
   if (!PK) return;
   const q = (document.getElementById('pkq') || {}).value || '';
-  const cats = [...S.categories].filter(isTop).sort((a,b) => a.name.localeCompare(b.name,'es'));
+  const cats = [...S.categories].map(c => ({id: c.id, name: c.name, path: catPath(c.id)}))
+    .sort((a,b) => a.path.localeCompare(b.path,'es'));
+  let selPar = '';
+  if (PK.sel != null && catMap.has(PK.sel)) selPar = PK.sel;
   document.getElementById('pkbox').innerHTML = `<div class="hd"><button class="btn" data-pknewcancel="1">Atrás</button><strong>Nueva categoría</strong><button class="btn primary" data-pknewsave="1">Crear</button></div>
     <div class="fld"><div class="fr"><label>Nombre</label><input id="pkn_name" value="${esc(q.trim())}" style="text-align:left" autocomplete="off"></div>
-    <div class="fr"><label>Dentro de</label><select id="pkn_par"><option value="">Ninguna (principal)</option>${cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div></div>
-    <div class="empty">Se creará y quedará elegida en este apunte.</div>`;
+    <div class="fr"><label>Dentro de</label><select id="pkn_par"><option value="">Ninguna (principal)</option>${cats.map(c => `<option value="${c.id}" ${selPar === c.id ? 'selected' : ''}>${esc(c.path)}</option>`).join('')}</select></div></div>
+    <div class="empty">Se creará y quedará elegida en este apunte. Puedes situarla como categoría principal o dentro de cualquier subcategoría existente.</div>`;
   setTimeout(() => { const i = document.getElementById('pkn_name'); if (i) { i.focus(); i.select(); } }, 50);
 }
 function pkNewSave(){
@@ -1763,12 +1991,17 @@ function openAccForm(id){
   const a = id != null ? accMap.get(id) : null;
   FACC = a ? a.id : null;
   const types = [['cheques','Cuenta corriente'],['ahorro','Ahorro'],['efectivo','Efectivo'],['credito','Tarjeta de crédito'],['inversion','Inversión']];
+  const grps = getAccountGroups().filter(g => g !== 'Inversiones');
+  const currentGroup = a ? (a.group || ((a.type === 'efectivo' || a.type === 'credito' || /tarjeta|efectivo/i.test(a.name || '')) ? 'Efectivo y tarjetas' : 'Entidades')) : 'Entidades';
+  const groupOpts = grps.map(g => `<option value="${esc(g)}" ${currentGroup.toLowerCase() === g.toLowerCase() ? 'selected' : ''}>${esc(g)}</option>`).join('') +
+    `<option value="Inversiones" ${(a && (a.type === 'inversion' || currentGroup === 'Inversiones')) ? 'selected' : ''}>Inversiones</option>` +
+    `<option value="__new__">+ Crear nuevo grupo…</option>`;
   $('#sheet').innerHTML = `
     <div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>${a ? 'Editar cuenta' : 'Nueva cuenta'}</strong><button class="btn primary" data-act="accsave">Guardar</button></div>
     <div class="fld">
       <div class="fr"><label>Nombre</label><input id="a_name" value="${esc(a ? a.name : '')}" placeholder="Ej. Santander" style="text-align:left"></div>
       <div class="fr"><label>Tipo</label><select id="a_type">${types.map(([k,l]) => `<option value="${k}" ${(a ? a.type : 'cheques') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <div class="fr"><label>Grupo</label><select id="a_group"><option value="Entidades" ${(a ? (a.group || ((a.type === 'efectivo' || a.type === 'credito' || /tarjeta|efectivo/i.test(a.name || '')) ? 'Efectivo y Tarjetas' : 'Entidades')) : 'Entidades') === 'Entidades' ? 'selected' : ''}>Entidades</option><option value="Efectivo y Tarjetas" ${(a ? (a.group || ((a.type === 'efectivo' || a.type === 'credito' || /tarjeta|efectivo/i.test(a.name || '')) ? 'Efectivo y Tarjetas' : 'Entidades')) : 'Entidades') === 'Efectivo y Tarjetas' ? 'selected' : ''}>Efectivo y Tarjetas</option><option value="Inversiones" ${(a && a.type === 'inversion') || (a && a.group === 'Inversiones') ? 'selected' : ''}>Inversiones</option></select></div>
+      <div class="fr"><label>Grupo</label><select id="a_group" data-prev="${esc(currentGroup)}">${groupOpts}</select></div>
       <div class="fr"><label>Saldo inicial</label><input id="a_open" type="number" step="0.01" value="${a ? a.opening : 0}"></div>
       <div class="fr"><label>En patrimonio</label><input id="a_inc" type="checkbox" ${!a || a.inNetWorth ? 'checked' : ''} style="flex:none;width:22px;height:22px"></div>
       <div class="fr"><label>Archivada</label><input id="a_arch" type="checkbox" ${a && a.archived ? 'checked' : ''} style="flex:none;width:22px;height:22px"></div>
@@ -1931,17 +2164,15 @@ function openCatForm(id){
   const c = id != null ? catMap.get(id) : null;
   FCAT = c ? c.id : null;
   FICON = c ? (c.icon || null) : null;
-  const hasKids = c && S.categories.some(x => x.parent === c.id);
   const parents = S.categories.filter(x => !c || (x.id !== c.id && !isDescOf(x.id, c.id))).sort((a,b) => catPath(a.id).localeCompare(catPath(b.id),'es'));
   $('#sheet').innerHTML = `
     <div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>${c ? 'Editar categoría' : 'Nueva categoría'}</strong><button class="btn primary" data-act="catsave">Guardar</button></div>
     <div class="fld">
       <div class="fr"><label>Nombre</label><input id="c_name" value="${esc(c ? c.name : '')}" style="text-align:left"></div>
-      <div class="fr"><label>Dentro de</label><button type="button" class="pkbtn${c && c.parent != null && catMap.has(c.parent) ? '' : ' none'}" id="c_par_b" data-pkopen="c_par" data-pkempty="Ninguna (principal)" ${hasKids ? 'disabled' : ''}>${catBtn(c ? c.parent : null, 'Ninguna (principal)')}</button><input type="hidden" id="c_par" value="${c && c.parent != null ? c.parent : ''}" ${hasKids ? 'disabled' : ''}></div>
+      <div class="fr"><label>Dentro de</label><button type="button" class="pkbtn${c && c.parent != null && catMap.has(c.parent) ? '' : ' none'}" id="c_par_b" data-pkopen="c_par" data-pkempty="Ninguna (principal)">${catBtn(c ? c.parent : null, 'Ninguna (principal)')}</button><input type="hidden" id="c_par" value="${c && c.parent != null ? c.parent : ''}"></div>
     </div>
     <div class="fld"><div class="fr" id="iconpick" style="flex-wrap:wrap;justify-content:flex-start;gap:6px">${iconPickHtml()}</div></div>
     <div class="empty">Elige un icono o deja «Auto» para que se elija según el nombre.</div>
-    ${hasKids ? `<div class="empty">Tiene subcategorías, así que no puede pasar a otra categoría.</div>` : ''}
     ${c ? catMergeBlock(c) : ''}${c ? `<div class="fld"><div class="fr" style="justify-content:center"><button class="btn danger" data-act="catdel">Eliminar categoría</button></div></div>` : ''}
     <div style="height:28px"></div>`;
   $('#ov').classList.add('on');
@@ -2112,13 +2343,17 @@ async function editPrice(id){
 
 /* ---------- Selección de cuentas en informes ---------- */
 function accGroups(){
-  return [
-    ['Entidades', a => included(a) && a.type !== 'inversion' && a.group === 'Entidades'],
-    ['Efectivo y tarjetas', a => included(a) && a.type !== 'inversion' && a.group !== 'Entidades'],
-    ['Inversiones', a => included(a) && a.type === 'inversion'],
-    ['Fuera del patrimonio', a => !included(a) && !a.archived],
-    ['Archivadas', a => a.archived]
-  ];
+  const list = [];
+  for (const g of getAccountGroups()) {
+    if (g === 'Inversiones') {
+      list.push([g, a => included(a) && a.type === 'inversion']);
+    } else {
+      list.push([g, a => included(a) && a.type !== 'inversion' && (a.group || 'Entidades').toLowerCase() === g.toLowerCase()]);
+    }
+  }
+  list.push(['Fuera del patrimonio', a => !included(a) && !a.archived]);
+  list.push(['Archivadas', a => a.archived]);
+  return list;
 }
 function repAccList(){
   const all = ordered();
@@ -2625,7 +2860,7 @@ function go(v, acc){
   render();
   window.scrollTo(0,0);
 }
-function act(a){
+function act(a, el){
   if (a === 'mintos-save') saveMintosSnapshot();
   else if (a === 'mintos-panel') { mintosPanelOpen = !mintosPanelOpen; mintosEditing = false; render(); }
   else if (a === 'mintos-edit') { mintosEditing = !mintosEditing; render(); }
@@ -2651,6 +2886,13 @@ function act(a){
   else if (a === 'accedit') openAccForm(f.account);
   else if (a === 'accsave') saveAcc();
   else if (a === 'catnew') openCatForm(null);
+  else if (a === 'grpnew') openNewGroupPrompt();
+  else if (a === 'savegrpnew') saveNewGroup();
+  else if (a === 'grpmgr') openGroupManager();
+  else if (a === 'mgr-grpup') { if (el && el.dataset.grp) { moveGroup(el.dataset.grp, -1); openGroupManager(); } }
+  else if (a === 'mgr-grpdn') { if (el && el.dataset.grp) { moveGroup(el.dataset.grp, 1); openGroupManager(); } }
+  else if (a === 'mgr-grpren') { if (el && el.dataset.grp) renameGroupPrompt(el.dataset.grp); }
+  else if (a === 'mgr-grpdel') { if (el && el.dataset.grp) deleteGroupConfirm(el.dataset.grp); }
   else if (a === 'benset') go('beneficiarios');
   else if (a === 'bennew') benNew();
   else if (a === 'benedit') { if (BR.who) benEdit(BR.who); }
@@ -2672,8 +2914,14 @@ function act(a){
   else if (a === 'selmode') { selMode = !selMode; if (!selMode) SEL.clear(); render(); }
   else if (a === 'selall') { VIS.forEach(id => SEL.add(id)); render(); }
   else if (a === 'selnone') { SEL.clear(); render(); }
+  else if (a === 'selacc') selAccOpen();
+  else if (a === 'selaccapply') selAccApply();
   else if (a === 'selcat') selCatOpen();
   else if (a === 'selpay') selPayOpen();
+  else if (a === 'selnote') selNoteOpen();
+  else if (a === 'selnoteapply') selNoteApply();
+  else if (a === 'seldate') selDateOpen();
+  else if (a === 'seldateapply') selDateApply();
   else if (a === 'bedsave') benEditSave();
   else if (a === 'bedall') benIconAll();
   else if (a === 'beddel') benDeleteBen(BEDIT);
@@ -2885,7 +3133,7 @@ function render(){
     if (isMintosAcc(f.account)) hact += `<button class="btn" data-act="mintos-panel">${mintosPanelOpen ? 'Panel ✓' : '🪙 Panel'}</button>`;
     hact += `<button class="btn" data-act="selmode">${selMode ? 'Listo' : 'Seleccionar'}</button><button class="btn primary" data-act="new">+ Apunte</button>`;
   } else if (view === 'cuentas') {
-    hact = `<button class="btn" data-act="reorder">${reorder ? 'Listo' : 'Ordenar'}</button><button class="btn primary" data-act="accnew">+ Cuenta</button>`;
+    hact = `<button class="btn" data-act="grpnew">+ Grupo</button><button class="btn" data-act="reorder">${reorder ? 'Listo' : 'Ordenar'}</button><button class="btn primary" data-act="accnew">+ Cuenta</button>`;
   } else if (view === 'beneficiarios') {
     hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn primary" data-act="bennew">+ Beneficiario</button>`;
   } else if (view === 'categorias') {
@@ -2919,6 +3167,37 @@ document.addEventListener('change', e => {
     render(); return;
   }
   if (id === 'bsel') { BR.who = e.target.value || null; BQ = ''; render(); return; }
+  if (e.target && e.target.id === 'a_group' && e.target.value === '__new__') {
+    const sel = e.target;
+    const name = prompt('Nombre del nuevo grupo:');
+    if (!name || !name.trim()) {
+      sel.value = sel.dataset.prev || 'Entidades';
+      return;
+    }
+    const trimmed = name.trim();
+    if (trimmed.toLowerCase() === 'fuera del patrimonio' || trimmed.toLowerCase() === 'archivadas') {
+      alert('Ese nombre está reservado para el sistema');
+      sel.value = sel.dataset.prev || 'Entidades';
+      return;
+    }
+    const grps = getAccountGroups();
+    if (!grps.some(g => g.toLowerCase() === trimmed.toLowerCase())) {
+      grps.push(trimmed);
+      S.accountGroups = grps;
+      save();
+    }
+    const opt = document.createElement('option');
+    opt.value = trimmed;
+    opt.textContent = trimmed;
+    opt.selected = true;
+    sel.insertBefore(opt, sel.lastElementChild);
+    sel.value = trimmed;
+    sel.dataset.prev = trimmed;
+    return;
+  }
+  if (e.target && e.target.id === 'a_group') {
+    e.target.dataset.prev = e.target.value;
+  }
 });
 document.addEventListener('input', e => {
   if (e.target && e.target.id === 'bp_q') { renderBpList(e.target.value); return; }
@@ -2963,9 +3242,10 @@ document.addEventListener('click', e => {
   const be = t.closest('[data-bedit]'); if (be) { benEditSheet(be.dataset.bedit); return; }
   const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab); return; }
   const mo = t.closest('[data-mo]'); if (mo) { f.month = shiftMonth(f.month, Number(mo.dataset.mo)); render(); return; }
-  const ac = t.closest('[data-act]'); if (ac) { if (ac.dataset.act === 'duplicate') { const id = FID; if (id != null) openForm(id, true); return; } act(ac.dataset.act); return; }
+  const ac = t.closest('[data-act]'); if (ac) { if (ac.dataset.act === 'duplicate') { const id = FID; if (id != null) openForm(id, true); return; } act(ac.dataset.act, ac); return; }
   const gl = t.closest('[data-go]'); if (gl) { go(gl.dataset.go, Number(gl.dataset.acc)); return; }
   const mvb = t.closest('[data-move]'); if (mvb) { moveAcc(Number(mvb.dataset.acc), Number(mvb.dataset.move)); return; }
+  const mvg = t.closest('[data-move-grp]'); if (mvg) { moveGroup(mvg.dataset.grp, Number(mvg.dataset.moveGrp)); return; }
   const hp = t.closest('[data-hprice]'); if (hp) { editPrice(Number(hp.dataset.hprice)); return; }
   const sadd = t.closest('[data-sadd]'); if (sadd) { FSPL.push({category: null, amount: 0}); splitUI(); return; }
   const sdel = t.closest('[data-sdel]'); if (sdel) { FSPL.splice(Number(sdel.dataset.sdel), 1); if (!FSPL.length) FSPL = null; formUI(); return; }
