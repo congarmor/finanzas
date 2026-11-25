@@ -181,6 +181,7 @@ img{-webkit-user-drag:none;user-drag:none}
 #uidlg .r{display:flex;justify-content:flex-end;gap:8px}
 #uidlg button{font:inherit;font-size:15px;padding:9px 16px;border-radius:10px;border:0;background:var(--bg);color:var(--accent);cursor:pointer}
 #uidlg button.ok{background:var(--accent);color:#fff;font-weight:600}
+.row .t1{font-weight:600}.row .amt{font-size:17px;font-weight:600}.row .t2{font-size:12.5px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" async="" data-src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script></head>
 <body>
@@ -245,6 +246,79 @@ function uiConfirm(msg,title,ok){return uiDialog({msg:msg,title:title,ok:ok||'Ac
 window.alert=function(msg){uiDialog({msg:String(msg),cancel:null});};
 </script>
 <script>
+(async () => {
+
+/* ---------- Almacenamiento: IndexedDB con caché en memoria (sustituye a localStorage) ---------- */
+const KV = (() => {
+  const DBN = 'mis-finanzas', ST = 'kv';
+  const cache = new Map();
+  let db = null, chain = Promise.resolve(), fallback = false;
+  const write = (k, v) => new Promise((res, rej) => {
+    const t = db.transaction(ST, 'readwrite'), st = t.objectStore(ST);
+    if (v === undefined) st.delete(k); else st.put(v, k);
+    t.oncomplete = () => res();
+    t.onerror = t.onabort = () => rej(t.error || new Error('No se pudo escribir'));
+  });
+  const readOne = k => new Promise((res, rej) => {
+    const t = db.transaction(ST, 'readonly'), r = t.objectStore(ST).get(k);
+    t.oncomplete = () => res(r.result);
+    t.onerror = () => rej(t.error);
+  });
+  const fail = err => {
+    storeOK = false;
+    console.error(err);
+    alert('No se han podido guardar los cambios en este navegador (' + ((err && err.message) || err) + '). Exporta una copia en JSON antes de cerrar.');
+  };
+  const enqueue = op => { chain = chain.then(op).catch(fail); return chain; };
+  async function init(){
+    try {
+      if (!window.indexedDB) throw new Error('sin IndexedDB');
+      db = await new Promise((res, rej) => {
+        const r = indexedDB.open(DBN, 1);
+        r.onupgradeneeded = () => r.result.createObjectStore(ST);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      await new Promise((res, rej) => {
+        const t = db.transaction(ST, 'readonly'), st = t.objectStore(ST), ks = st.getAllKeys(), vs = st.getAll();
+        t.oncomplete = () => { ks.result.forEach((k, i) => cache.set(k, vs.result[i])); res(); };
+        t.onerror = () => rej(t.error);
+      });
+    } catch(e) { fallback = true; }
+    const old = [];
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k === KEY || k.startsWith(KEY + '-')) old.push(k); } } catch(e) {}
+    if (fallback) { old.forEach(k => { if (!cache.has(k)) cache.set(k, localStorage.getItem(k)); }); return; }
+    try {
+      // Migración: copiar lo de localStorage, comprobar que se lee igual y solo entonces liberar el espacio antiguo
+      for (const k of old) {
+        const v = localStorage.getItem(k);
+        if (!cache.has(k)) { await write(k, v); if ((await readOne(k)) !== v) throw new Error('verificación'); cache.set(k, v); }
+      }
+      old.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+    } catch(e) {
+      // Si la migración falla, se conservan los datos de localStorage y se sigue con ellos
+      console.error(e);
+      old.forEach(k => { if (!cache.has(k)) cache.set(k, localStorage.getItem(k)); });
+      fallback = true;
+    }
+  }
+  return {
+    init,
+    getItem: k => (cache.has(k) ? cache.get(k) : null),
+    setItem(k, v){
+      v = String(v); cache.set(k, v);
+      if (fallback) { try { localStorage.setItem(k, v); } catch(e) { fail(e); } return; }
+      enqueue(() => write(k, v));
+    },
+    removeItem(k){
+      cache.delete(k);
+      if (fallback) { try { localStorage.removeItem(k); } catch(e) {} return; }
+      enqueue(() => write(k, undefined));
+    },
+    keys: () => [...cache.keys()],
+    flush: () => chain
+  };
+})();
 const SEED = null;
 
 const KEY = 'mw-control-v1';
@@ -265,6 +339,7 @@ const TYPE_LABEL = {gasto:'Gasto', ingreso:'Ingreso', reembolso:'Reembolso', tra
 const ACC_LABEL = {cheques:'Cuenta corriente', ahorro:'Ahorro', efectivo:'Efectivo', credito:'Tarjeta de crédito', inversion:'Inversión'};
 const TABS = [['inicio','📈','P y G'],['cuentas','🏦','Cuentas'],['informes','📊','Informes'],['ajustes','⚙️','Ajustes']];
 
+await KV.init();
 let S, catMap, accMap, txMap, refMap, payees = [], storeOK = true;
 let selMode = false; const SEL = new Set(); let VIS = [];
 let view = 'inicio';
@@ -366,17 +441,17 @@ function fixesV6(o){
 }
 function loadState(){
   try {
-    if (SEED && SEED.exportedAt && valid(SEED) && localStorage.getItem(KEY + '-copia') !== SEED.exportedAt) {
-      const prev = localStorage.getItem(KEY);
+    if (SEED && SEED.exportedAt && valid(SEED) && KV.getItem(KEY + '-copia') !== SEED.exportedAt) {
+      const prev = KV.getItem(KEY);
       if (prev) { setBackup(KEY + '-antes-fusion', prev); }
-      try { localStorage.setItem(KEY + '-copia', SEED.exportedAt); } catch(e) {}
+      try { KV.setItem(KEY + '-copia', SEED.exportedAt); } catch(e) {}
       const st = JSON.parse(JSON.stringify(SEED)); delete st.exportedAt;
       MIGRATED = false;
       return st;
     }
   } catch(e) {}
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = KV.getItem(KEY);
     if (raw) {
       const o = JSON.parse(raw);
       if (valid(o)) {
@@ -395,7 +470,7 @@ function loadState(){
   return {version:1,dataVersion:DATA_VERSION,accounts:[],categories:[],transactions:[],holdings:[],accountOrder:[],reports:[],mintosSnapshots:[],deleted:{},touched:{}};
 }
 async function restoreBackup(){
-  const raw = localStorage.getItem(KEY + '-antes-fusion') || localStorage.getItem(KEY + '-anterior');
+  const raw = KV.getItem(KEY + '-antes-fusion') || KV.getItem(KEY + '-anterior');
   if (!raw) { alert('No hay copia anterior guardada en este navegador.'); return; }
   if (!await uiConfirm('Volver a la copia anterior a la última fusión o importación. ¿Continuar?')) return;
   S = JSON.parse(raw); reindex(); save(); render();
@@ -404,19 +479,17 @@ async function restoreBackup(){
    Se borran las antiguas para que no impidan guardar los datos reales. */
 function pruneBackups(keepName){
   try {
-    Object.keys(localStorage).filter(k => k.startsWith(KEY + '-antes-') && k !== keepName).forEach(k => localStorage.removeItem(k));
+    KV.keys().filter(k => k.startsWith(KEY + '-antes-') && k !== keepName).forEach(k => KV.removeItem(k));
   } catch(e) {}
 }
 function setBackup(name, raw){
   pruneBackups(name);
-  try { localStorage.setItem(name, raw); return true; } catch(e) { try { localStorage.removeItem(name); } catch(_) {} return false; }
+  try { KV.setItem(name, raw); return true; } catch(e) { try { KV.removeItem(name); } catch(_) {} return false; }
 }
 function save(){
   S.dataVersion = DATA_VERSION;
-  const raw = JSON.stringify(S);
-  try { localStorage.setItem(KEY, raw); storeOK = true; return; } catch(e) {}
-  pruneBackups(null);
-  try { localStorage.setItem(KEY, raw); storeOK = true; } catch(e) { storeOK = false; }
+  storeOK = true;
+  KV.setItem(KEY, JSON.stringify(S));
 }
 function repairRefunds(useSeed){
   const ids = new Map(S.transactions.map(t => [t.id, t]));
@@ -440,7 +513,7 @@ function repairRefunds(useSeed){
     });
     if (best) { link(t, best.id, null); used.set(best.id, (used.get(best.id) || 0) + t.amount); }
   });
-  if (changed) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
+  if (changed) { try { KV.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
   return changed;
 }
 function reindex(){
@@ -967,7 +1040,7 @@ function qSummary(){
   return `<div class="card" style="margin:8px 12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div class="t1">${list.length} apuntes</div><div class="t2">Total <span class="${sign(tot)}"><strong>${money(tot)}</strong></span></div></div><button class="btn" data-act="toreport">Ver como informe</button></div>`;
 }
 function selBar(){
-  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><button class="btn" data-act="selall">Todas (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn" data-act="selacc">Cuenta</button><button class="btn" data-act="selcat">Categoría</button><button class="btn" data-act="selpay">Beneficiario</button><button class="btn" data-act="selnote">Notas</button><button class="btn" data-act="seldate">Fecha</button><button class="btn danger" data-act="seldel">Eliminar</button></div></div>`;
+  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;gap:6px;margin-top:8px;align-items:center"><button class="btn" data-act="selall">Todas (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><select id="selact" class="field" style="margin:0;flex:1;min-width:0;text-align:left"><option value="">Acción sobre la selección…</option><option value="seldesc">Modificar descripción</option><option value="selacc">Cambiar cuenta</option><option value="selcat">Cambiar categoría</option><option value="selpay">Asignar beneficiario</option><option value="selnote">Modificar notas</option><option value="seldate">Cambiar fecha</option><option value="seldel">Eliminar</option></select></div></div>`;
 }
 function selAccOpen(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
@@ -1361,6 +1434,13 @@ function monthsOf(lines){
 }
 function calBtn(id, val){ return `<span class="calw"><button type="button" class="btn" data-calfor="${id}" title="Elegir en el calendario" aria-label="Calendario">📅</button><input id="${id}" type="date" value="${val || ''}" tabindex="-1"></span>`; }
 function xb(act, on){ return `<button class="btn xclr" data-act="${act}" title="Borrar" aria-label="Borrar" ${on ? '' : 'disabled'}>✕</button>`; }
+function emptyNote(list){
+  if (list.length) return '';
+  const dates = S.transactions.map(t => t.date).sort();
+  const last = dates.length ? dates[dates.length - 1] : null;
+  const filt = R.q || R.cats.size || R.excl.size || (R.tipo && R.tipo !== 'todos');
+  return `<div class="banner" style="background:#ff9f0a33;margin:10px 12px 0"><strong>No hay movimientos en ${esc(periodText())}</strong>${filt ? '. Hay filtros activos (búsqueda, cuentas, categorías o tipo): revísalos' : ''}${last ? '. El último movimiento registrado es del ' + esc(fmtDate(last)) : ''}.</div>`;
+}
 function viewReportsMain(){
   const list = reportRows();
   const inc = incomeList(list), exp = expenseList(list);
@@ -1386,7 +1466,7 @@ function viewReportsMain(){
   h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button>${xb('rclr-cat', R.cats.size > 0)}</div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${xb('rclr-view', R.view !== 'fechas')}</div>`;
   h += `<div class="bar" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="repsaved">Guardados (${(S.reports || []).length})</button><button class="btn" data-act="repsave">Guardar informe</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="xls">Exportar Excel</button><button class="btn" data-act="csv">Exportar CSV</button></div>`;
   h += `</div>`;
-  h += `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><div class="l">${R.q ? 'Total de «' + esc(R.q) + '»' : 'Resultado del periodo'} · ${esc(periodText())}</div><div class="v">${money(total)}</div><div class="l" style="margin-top:8px">Ingresos ${money(incTot)} · Gastos ${money(expTot)} · ${list.length} apuntes</div></div>`;
+  h += emptyNote(list) + `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><div class="l">${R.q ? 'Total de «' + esc(R.q) + '»' : 'Resultado del periodo'} · ${esc(periodText())}</div><div class="v">${money(total)}</div><div class="l" style="margin-top:8px">Ingresos ${money(incTot)} · Gastos ${money(expTot)} · ${list.length} apuntes</div></div>`;
   if (R.view === 'fechas') {
     h += sectionFechas('Ingresos', inc, t => rrow(t));
     h += sectionFechas('Gastos', exp, expRowFechas);
@@ -1733,8 +1813,22 @@ function catBlock(title, list, expenseMode){
 }
 
 /* ---------- Ajustes ---------- */
+function storageText(){
+  let b = 0;
+  KV.keys().forEach(k => { b += (k.length + String(KV.getItem(k)).length) * 2; });
+  setTimeout(updateQuota, 0);
+  return `<span style="white-space:normal;display:block">Datos guardados: ${(b / 1048576).toFixed(2).replace('.', ',')} MB (incluye copias de seguridad)<br><span id="stoQuota">Calculando espacio disponible…</span></span>`;
+}
+async function updateQuota(){
+  const el = document.getElementById('stoQuota'); if (!el) return;
+  if (!navigator.storage || !navigator.storage.estimate) { el.textContent = 'Este navegador no informa del espacio disponible'; return; }
+  try {
+    const e = await navigator.storage.estimate();
+    el.textContent = `Espacio de este navegador: ${(e.usage / 1048576).toFixed(1).replace('.', ',')} MB usados de ${(e.quota / 1073741824).toFixed(1).replace('.', ',')} GB disponibles`;
+  } catch(err) { el.textContent = 'No se ha podido leer el espacio disponible'; }
+}
 function viewSettings(){
-  return `<div class="sec"><span>Copia de seguridad</span></div><div class="card">
+  return `<div class="sec"><span>Almacenamiento</span></div><div class="card"><div class="row"><div class="mid"><div class="t1">Espacio usado en este navegador</div><div class="t2">${storageText()}</div></div></div></div><div class="sec"><span>Copia de seguridad</span></div><div class="card">
     <div class="row" data-act="export-json"><div class="mid"><div class="t1">Exportar copia (JSON)</div><div class="t2">Descarga una copia .json de tus datos</div></div></div>
     <div class="row" data-act="import"><div class="mid"><div class="t1">Importar copia</div><div class="t2">Añade lo que falte y actualiza lo que no hayas cambiado aquí. Tus cambios se mantienen</div></div></div>
     <div class="row" data-act="replace-import"><div class="mid"><div class="t1">Reemplazar todos los datos desde un JSON</div><div class="t2">Sustituye por completo la información de este dispositivo. Antes se guarda una copia recuperable.</div></div></div>
@@ -1867,7 +1961,7 @@ function openForm(id, duplicate = false){
     <div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>${duplicate ? 'Duplicar movimiento' : orig ? 'Editar movimiento' : 'Nuevo movimiento'}</strong>${orig && !duplicate ? '<button class="btn" data-act="duplicate">Duplicar</button>' : ''}<button class="btn primary" data-act="save">Guardar</button></div>
     <div class="seg" id="kind">${['gasto','ingreso','reembolso','transferencia'].map(k => `<button type="button" data-k="${k}">${TYPE_LABEL[k]}</button>`).join('')}</div>
     <div class="fld">
-      <div class="fr"><label>Descripción</label><textarea id="f_desc" rows="2" style="min-height:48px" placeholder="Ej. Compra supermercado">${esc(orig ? orig.desc || '' : '')}</textarea></div>
+      <div class="fr"><label>Descripción</label><textarea id="f_desc" rows="4" style="min-height:110px;field-sizing:content;max-height:55vh;overflow:auto;line-height:1.4" placeholder="Ej. Compra supermercado">${esc(orig ? orig.desc || '' : '')}</textarea></div>
       <div class="fr"><label>Importe</label><div class="money-wrap"><input id="f_amt" class="big" type="text" inputmode="numeric" autocomplete="off" data-money="1" value="${orig ? moneyInputFormat(Math.round(Math.abs(orig.amount)*100)) : ''}" placeholder="0,00"><span class="currency">€</span></div></div>
       <div class="fr"><label>Fecha</label><input id="f_date" type="date" value="${orig && !duplicate ? orig.date : todayStr()}"></div>
       <div class="fr"><label id="lbl_acc">Cuenta</label><select id="f_acc">${accOpts(from)}</select></div>
@@ -2782,17 +2876,14 @@ $('#replaceIn').addEventListener('change', e => {
     try {
       // Reemplazo limpio: no duplicar el estado anterior, pues puede agotar la cuota de Safari.
       // El JSON seleccionado queda como copia de seguridad externa en Archivos.
-      const keysToClear = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k === KEY || (k && k.startsWith(KEY + '-'))) keysToClear.push(k);
-      }
-      keysToClear.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+      const keysToClear = KV.keys().filter(k => k === KEY || k.startsWith(KEY + '-'));
+      keysToClear.forEach(k => KV.removeItem(k));
       S = JSON.parse(JSON.stringify(obj));
       S.dataVersion = DATA_VERSION;
       reindex();
       // Guardar únicamente los datos nuevos, sin copias ni estado anterior ocupando espacio.
       save();
+      await KV.flush();
       if (!storeOK) throw new Error('Safari sigue sin espacio para guardar este JSON. Conserva el archivo y libera almacenamiento de sitios web antes de volver a intentarlo.');
       closeForm(); render();
       alert('Reemplazo completo realizado. Se han guardado únicamente los datos del JSON. La copia anterior no se conserva en el navegador; mantén el archivo JSON original en Archivos.');
@@ -3700,6 +3791,7 @@ document.addEventListener('click', e => {
 }, true);
 document.addEventListener('change', e => {
   const el = e.target;
+  if (el.id === 'selact') { const v = el.value; el.value = ''; if (v) act(v, el); return; }
   if (el.id === 'cmpkind') { CMP.kind = el.value; render(); }
   else if (el.id === 'cmpvs') { CMP.vs = el.value; render(); }
   else if (el.id === 'cmpaccs') { CMP.accs = el.value; render(); }
@@ -3722,5 +3814,9 @@ document.addEventListener('change', e => {
   }
 });
 
+function growDesc(el){ el.style.height = 'auto'; el.style.height = Math.max(110, Math.min(el.scrollHeight + 4, innerHeight * 0.55)) + 'px'; }
+document.addEventListener('input', e => { if (e.target.id === 'f_desc') growDesc(e.target); });
+document.addEventListener('focusin', e => { if (e.target.id === 'f_desc') growDesc(e.target); });
 lpEnhance();
+})();
 </script><div id="lp" class=""></div><div id="pk" class=""></div><input type="file" id="bankIn" class="hide" accept=".xls,.xlsx,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></body></html>
