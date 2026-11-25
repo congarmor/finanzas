@@ -1414,8 +1414,8 @@ function periodBlock(title, lines, mode){
     if (!tops.has(top.id)) tops.set(top.id, {top, total: 0, leaves: new Map()});
     const T = tops.get(top.id); T.total += l.amount;
     const key = l.category == null ? -1 : l.category;
-    if (!T.leaves.has(key)) T.leaves.set(key, {name: leafName(l.category, top), total: 0, per: {}});
-    const L = T.leaves.get(key); L.total += l.amount;
+    if (!T.leaves.has(key)) T.leaves.set(key, {name: leafName(l.category, top), total: 0, per: {}, lines: []});
+    const L = T.leaves.get(key); L.total += l.amount; L.lines.push(l);
     const k = pk(l.date); L.per[k] = (L.per[k] || 0) + l.amount;
   });
   let h = `<div class="sec"><span>${title}</span><span>${money(sumOf(lines))}</span></div>`;
@@ -1423,9 +1423,13 @@ function periodBlock(title, lines, mode){
     h += `<div class="cathead"><span>${esc(T.top.name)}</span><span class="${sign(T.total)}">${money(T.total)}</span></div>`;
     [...T.leaves.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).forEach(L => {
       h += `<div class="subhead"><span>${esc(L.name)}</span><span class="${sign(L.total)}">${money(L.total)}</span></div><div class="card">`;
-      Object.keys(L.per).sort().forEach(k => {
-        h += `<div class="row" style="min-height:0;padding:8px 14px;cursor:default"><div class="mid"><div class="t1">${esc(pl(k))}</div></div><div class="amt ${sign(L.per[k])}">${money(L.per[k])}</div></div>`;
-      });
+      if (R.expand) {
+        h += refundsWithExpense(L.lines.sort((a, b) => byAsc(b.tx, a.tx)), l => l.tx).map(l => rrow(l.tx, l.amount)).join('');
+      } else {
+        Object.keys(L.per).sort().forEach(k => {
+          h += `<div class="row" style="min-height:0;padding:8px 14px;cursor:default"><div class="mid"><div class="t1">${esc(pl(k))}</div></div><div class="amt ${sign(L.per[k])}">${money(L.per[k])}</div></div>`;
+        });
+      }
       h += `</div>`;
     });
   });
@@ -1494,7 +1498,7 @@ function viewReportsMain(){
   </div>`;
   h += `<div class="bar"><input id="rq" class="field" type="search" placeholder="Buscar texto (agua, gas, supermercado…)" value="${esc(R.q)}" style="margin:0;flex:1">${xb('rclr-q', !!R.q)}</div>`;
   h += `<div class="bar"><button id="racc" class="field" data-act="accpick" style="margin:0;flex:1;text-align:left">${accLbl} ▾</button>${xb('rclr-acc', R.excl.size > 0)}<select id="rtipo" class="field" style="margin:0;flex:1"><option value="todos" ${R.tipo === 'todos' ? 'selected' : ''}>Todos</option><option value="gasto" ${R.tipo === 'gasto' ? 'selected' : ''}>Gastos</option><option value="ingreso" ${R.tipo === 'ingreso' ? 'selected' : ''}>Ingresos</option></select>${xb('rclr-tipo', R.tipo !== 'todos')}</div>`;
-  h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button>${xb('rclr-cat', R.cats.size > 0)}</div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${xb('rclr-view', R.view !== 'fechas')}</div>`;
+  h += `<div class="bar"><button class="field" data-act="catpick" style="margin:0;flex:1;text-align:left">${catLbl}</button>${xb('rclr-cat', R.cats.size > 0)}</div><div class="bar"><select id="rview" class="field" style="margin:0;flex:1">${views.map(([k,l]) => `<option value="${k}" ${R.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${xb('rclr-view', R.view !== 'fechas')}${(R.view === 'matriz' || R.view === 'catanio') ? `<button class="btn" data-act="rexp" style="flex:none">${R.expand ? 'Contraer' : 'Expandir movimientos'}</button>` : ''}</div>`;
   h += `<div class="bar" style="justify-content:flex-end;flex-wrap:wrap"><button class="btn" data-act="repsaved">Guardados (${(S.reports || []).length})</button><button class="btn" data-act="repsave">Guardar informe</button><button class="btn" data-act="pdf">Exportar PDF</button><button class="btn" data-act="xls">Exportar Excel</button><button class="btn" data-act="csv">Exportar CSV</button></div>`;
   h += `</div>`;
   h += emptyNote(list) + `<div class="hero" style="background:linear-gradient(135deg,#248a3d,#0a7cff)"><div class="l">${R.q ? 'Total de «' + esc(R.q) + '»' : 'Resultado del periodo'} · ${esc(periodText())}</div><div class="v">${money(total)}</div><div class="l" style="margin-top:8px">Ingresos ${money(incTot)} · Gastos ${money(expTot)} · ${list.length} apuntes</div></div>`;
@@ -3066,6 +3070,7 @@ function act(a, el){
   else if (a === 'rclr-cat') { R.cats.clear(); persistRep(); render(); }
   else if (a === 'rclr-tipo') { R.tipo = 'todos'; render(); }
   else if (a === 'rclr-view') { R.view = 'fechas'; render(); }
+  else if (a === 'rexp') { R.expand = !R.expand; render(); }
   else if (a === 'accpick') repAccOpen();
   else if (a === 'catmerge') mergeCatNow();
   else if (a === 'sync-verify') syncVerify();
