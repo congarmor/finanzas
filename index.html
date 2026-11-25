@@ -1040,7 +1040,7 @@ function qSummary(){
   return `<div class="card" style="margin:8px 12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div class="t1">${list.length} apuntes</div><div class="t2">Total <span class="${sign(tot)}"><strong>${money(tot)}</strong></span></div></div><button class="btn" data-act="toreport">Ver como informe</button></div>`;
 }
 function selBar(){
-  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;gap:6px;margin-top:8px;align-items:center"><button class="btn" data-act="selall">Todas (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><select id="selact" class="field" style="margin:0;flex:1;min-width:0;text-align:left"><option value="">Acción sobre la selección…</option><option value="seldesc">Modificar descripción</option><option value="selacc">Cambiar cuenta</option><option value="selcat">Cambiar categoría</option><option value="selpay">Asignar beneficiario</option><option value="selnote">Modificar notas</option><option value="seldate">Cambiar fecha</option><option value="seldel">Eliminar</option></select></div></div>`;
+  return `<div class="card" style="margin:8px 12px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>${SEL.size} seleccionados</strong><span class="${sign(selTotal())}"><strong>${money(selTotal())}</strong></span></div><div style="display:flex;gap:6px;margin-top:8px;align-items:center"><button class="btn" data-act="selall">Todas (${VIS.length})</button><button class="btn" data-act="selnone">Ninguna</button><button class="btn primary" data-act="selcat" style="flex:1;min-width:0;margin:0">Cambiar categoría</button><select id="selact" class="field" style="margin:0;flex:0 0 auto;width:auto;color:var(--accent);font-weight:600;border:1px solid var(--accent)"><option value="">Otra acción ▾</option><option value="seldesc">Modificar descripción</option><option value="selacc">Cambiar cuenta</option><option value="selpay">Asignar beneficiario</option><option value="selnote">Modificar notas</option><option value="seldate">Cambiar fecha</option><option value="seldel">Eliminar</option></select></div></div>`;
 }
 function selAccOpen(){
   if (!SEL.size) { alert('Selecciona antes algún apunte'); return; }
@@ -1155,7 +1155,9 @@ async function selDelete(){
   SEL.clear(); reindex(); save(); render();
 }
 const SEARCH_FIELDS = {desc:['Descripción','Buscar por descripción (agua, gas…)','search'], amount:['Importe','Ej. 1259,48','decimal'], date:['Fecha','dd/mm/aaaa, mm/aaaa o aaaa-mm-dd','search'], note:['Notas','Buscar en notas…','search'], cat:['Categoría','Buscar por categoría…','search'], acc:['Cuenta','Buscar por cuenta…','search']};
-function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()) || !!f.nocat || !!f.range || !!f.accset; }
+function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()) || !!f.nocat || !!f.range || !!f.accset || !!f.catSet; }
+function catSubtree(id){ const out = new Set([id]); let added = true; while (added) { added = false; S.categories.forEach(c => { if (c.parent != null && out.has(c.parent) && !out.has(c.id)) { out.add(c.id); added = true; } }); } return out; }
+function catIdsOf(t){ return t.splits ? t.splits.map(s => s.category) : [(t.type === 'reembolso' && txMap.has(t.refundOf)) ? refundCat(t) : t.category]; }
 function moreFiltersHtml(){
   return (f.more || []).map((m, i) => { const sf = SEARCH_FIELDS[m.field] || SEARCH_FIELDS.desc; return `<div class="search-wrap"><select class="qfield" data-mfield="${i}" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === m.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input class="field" data-mq="${i}" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(m.q)}" autocomplete="off"><button type="button" class="search-clear" data-mdel="${i}" aria-label="Quitar este filtro" title="Quitar este filtro">×</button></div>`; }).join('') + `<div style="padding:0 12px 4px"><button type="button" class="btn" data-addfilter="1">＋ Añadir otro filtro (se cumplen todos a la vez)</button></div>`;
 }
@@ -1166,6 +1168,7 @@ function viewMoves(){
   const opts = ordered().map(a => `<option value="${a.id}" ${a.id === f.account ? 'selected' : ''}>${esc(a.name)}${a.archived ? ' (archivada)' : ''}</option>`).join('');
   h += `<select id="accsel" class="field">` + `<option value="">Todas las cuentas</option>` + opts + `</select>`;
   if (isMintosAcc(f.account)) h += `<div style="padding:8px 12px"><button class="btn primary" style="width:100%" data-act="mintos-panel">${mintosPanelOpen ? 'Ocultar panel Mintos' : '🪙 Abrir panel Mintos'}</button></div>${mintosPanelOpen ? mintosView() : ''}`;
+  if (f.catSet) h += `<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Categoría: ${esc(f.catName)} (con subcategorías) · ${VIS.length} movimientos</span><button class="btn" data-act="clrcat">Quitar</button></div>`;
   const sf = SEARCH_FIELDS[f.field] || SEARCH_FIELDS.desc;
   h += `<div class="search-wrap"><select id="qfield" class="qfield" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === f.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input id="q" class="field" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(f.q)}"><button type="button" class="search-clear" data-clear-search="q" aria-label="Borrar búsqueda" title="Borrar búsqueda">×</button></div>`;
   h += `<div id="mfilters">${moreFiltersHtml()}</div>`;
@@ -1196,6 +1199,7 @@ function moveList(){
     if (f.nocat) list = list.filter(isUncat);
     if (f.range) list = list.filter(t => t.date >= f.range[0] && t.date <= f.range[1]);
     if (f.accset) list = list.filter(t => f.accset.has(t.account));
+    if (f.catSet) list = list.filter(t => catIdsOf(t).some(c => c != null && f.catSet.has(c)));
   }
   list = [...list].sort((a,b) => byAsc(b,a));
   VIS = list.map(t => t.id);
@@ -1400,6 +1404,33 @@ function treeBlock(title, lines){
   });
   return h;
 }
+function periodBlock(title, lines, mode){
+  if (!lines.length) return `<div class="sec"><span>${title}</span></div><div class="empty">Sin movimientos</div>`;
+  const pk = d => mode === 'anio' ? d.slice(0,4) : d.slice(0,7);
+  const pl = k => mode === 'anio' ? k : monthLabel(k);
+  const tops = new Map();
+  lines.forEach(l => {
+    const top = topOf(l.category);
+    if (!tops.has(top.id)) tops.set(top.id, {top, total: 0, leaves: new Map()});
+    const T = tops.get(top.id); T.total += l.amount;
+    const key = l.category == null ? -1 : l.category;
+    if (!T.leaves.has(key)) T.leaves.set(key, {name: leafName(l.category, top), total: 0, per: {}});
+    const L = T.leaves.get(key); L.total += l.amount;
+    const k = pk(l.date); L.per[k] = (L.per[k] || 0) + l.amount;
+  });
+  let h = `<div class="sec"><span>${title}</span><span>${money(sumOf(lines))}</span></div>`;
+  [...tops.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).forEach(T => {
+    h += `<div class="cathead"><span>${esc(T.top.name)}</span><span class="${sign(T.total)}">${money(T.total)}</span></div>`;
+    [...T.leaves.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).forEach(L => {
+      h += `<div class="subhead"><span>${esc(L.name)}</span><span class="${sign(L.total)}">${money(L.total)}</span></div><div class="card">`;
+      Object.keys(L.per).sort().forEach(k => {
+        h += `<div class="row" style="min-height:0;padding:8px 14px;cursor:default"><div class="mid"><div class="t1">${esc(pl(k))}</div></div><div class="amt ${sign(L.per[k])}">${money(L.per[k])}</div></div>`;
+      });
+      h += `</div>`;
+    });
+  });
+  return h;
+}
 function monthKey(d){ return d.slice(0,7); }
 function monthLabelShort(ym){ const [y,m] = ym.split('-').map(Number); return MES[m-1].slice(0,3) + ' ' + String(y).slice(2); }
 function matrixBlock(title, lines, months){
@@ -1447,7 +1478,7 @@ function viewReportsMain(){
   const incL = lineRows(inc), expL = lineRows(exp);
   const incTot = sumOf(incL), expTot = sumOf(expL), total = incTot + expTot;
   const modes = [['mes','Mes elegido'],['mes-pasado','Mes pasado'],['trimestre','Últimos 3 meses'],['anio','Este año'],['anio-pasado','Año pasado'],['todo','Todo el histórico'],['rango','Entre fechas']];
-  const views = [['fechas','Por fecha'],['categorias','Expandido por categoría'],['anio','Por año y categoría'],['matriz','Por categoría y mes']];
+  const views = [['fechas','Por fecha'],['categorias','Expandido por categoría'],['anio','Por año y categoría'],['matriz','Por categoría y mes'],['catanio','Por categoría y año']];
   const nIn = ordered().filter(a => !R.excl.has(a.id)).length, nTot = S.accounts.length;
   const accLbl = nIn === nTot ? 'Todas las cuentas' : (nIn === 0 ? 'Ninguna cuenta' : nIn + ' de ' + nTot + ' cuentas');
   const catLbl = R.cats.size ? 'Categorías: ' + R.cats.size + ' elegidas ▾' : 'Todas las categorías ▾';
@@ -1475,10 +1506,12 @@ function viewReportsMain(){
   } else if (R.view === 'categorias') {
     h += treeBlock('Ingresos', incL);
     h += treeBlock('Gastos', expL);
+  } else if (R.view === 'catanio') {
+    h += periodBlock('Ingresos', incL, 'anio');
+    h += periodBlock('Gastos', expL, 'anio');
   } else {
-    const months = monthsOf(incL.concat(expL));
-    h += matrixBlock('Ingresos', incL, months);
-    h += matrixBlock('Gastos', expL, months);
+    h += periodBlock('Ingresos', incL, 'mes');
+    h += periodBlock('Gastos', expL, 'mes');
   }
   h += `<div class="sec"><span>Resultado</span><span class="${sign(total)}">${money(total)}</span></div>`;
   h += `<div class="empty">No cuentan los traspasos entre tus cuentas ni las inversiones. Los reembolsos aparecen en Gastos, restando de la categoría del gasto al que corresponden.</div>`;
@@ -2329,7 +2362,7 @@ function catListHtml(){
   }
   const rowFor = (c, depth, nk, open) => {
     const ic = catIconOf(c.id);
-    return `<div class="row" data-cat="${c.id}" style="padding-left:${14 + depth*26}px"><div class="ic${ic ? ' soft' : ''}" style="${ic ? icStyle(c.id) : 'background:' + colorOf(c.name)};width:${depth ? 28 : 34}px;height:${depth ? 28 : 34}px;font-size:${depth ? 17 : 20}px">${ic || esc((c.name||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(c.name)}</div><div class="t2">${cnt.get(c.id) || 0} movimientos</div></div>${nk ? `<button class="btn" data-ctog="${c.id}" style="min-width:56px">${open ? '▾' : '▸'} ${nk}</button>` : ''}<button class="btn" data-cat="${c.id}">Editar</button></div>`;
+    return `<div class="row" data-cat="${c.id}" style="padding-left:${14 + depth*26}px"><div class="ic${ic ? ' soft' : ''}" style="${ic ? icStyle(c.id) : 'background:' + colorOf(c.name)};width:${depth ? 28 : 34}px;height:${depth ? 28 : 34}px;font-size:${depth ? 17 : 20}px">${ic || esc((c.name||'?')[0].toUpperCase())}</div><div class="mid"><div class="t1">${esc(c.name)}</div><div class="t2"><button class="btn" data-act="catmov" data-id="${c.id}" style="padding:2px 0;font-size:13px">${cnt.get(c.id) || 0} movimientos ›</button></div></div>${nk ? `<button class="btn" data-ctog="${c.id}" style="min-width:56px">${open ? '▾' : '▸'} ${nk}</button>` : ''}<button class="btn" data-cat="${c.id}">Editar</button></div>`;
   };
   const walk = (c, depth) => {
     if (show && !show.has(c.id)) return '';
@@ -2553,8 +2586,7 @@ function mergeData(inc){
 }
 async function mergeImport(inc){
   if (!valid(inc)) { alert('El archivo no es una copia válida de esta app.'); return; }
-  if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Antes se guarda una copia. ¿Continuar?')) return;
-  setBackup(KEY + '-antes-fusion', JSON.stringify(S));
+  if (!await uiConfirm('Se añadirán los movimientos, cuentas y categorías que falten, y se actualizarán los que no hayas cambiado en este dispositivo. Lo que hayas cambiado aquí se mantiene. Conserva el archivo JSON original en Archivos. ¿Continuar?')) return;
   const st = mergeData(inc); save(); closeForm(); render();
   const lista = [inc.exportedAt ? 'Copia exportada el ' + new Date(inc.exportedAt).toLocaleString('es-ES') : 'Copia sin fecha de exportación', st.revived && st.revived.length ? 'Recuperados (estaban borrados en este dispositivo): ' + st.revived.join(', ') : '', st.skipped && st.skipped.length ? 'No añadidos por borrados en este dispositivo: ' + st.skipped.join(', ') : '', st.kept && st.kept.length ? 'Cambios locales de este dispositivo sustituidos por la copia: ' + st.kept.join(', ') : ''].filter(Boolean).join('\n');
   alert(`Fusión lista: ${st.add} añadidos, ${st.upd} actualizados, ${st.keep} cambios tuyos conservados${st.del ? ', ' + st.del + ' eliminados' : ''}.` + (lista ? '\n\n' + lista : ''));
@@ -2620,7 +2652,7 @@ function reportState(name){
   return {name, mode: R.mode, from: R.from, to: R.to, month: f.month, q: R.q, tipo: R.tipo, view: R.view, excl: [...R.excl], cats: [...R.cats]};
 }
 async function saveReportAs(){
-  let name = uiPrompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '', 'Guardar informe como', 'Guardar');
+  let name = await uiPrompt('Nombre del informe (p. ej. Coche, Facturas, Gastos fijos)', '', 'Guardar informe como', 'Guardar');
   while (name && name.trim()) {
     name = name.trim();
     const dup = (S.reports || []).find(r => nrm(r.name) === nrm(name));
@@ -3008,6 +3040,8 @@ function act(a, el){
   else if (a === 'selacc') selAccOpen();
   else if (a === 'selaccapply') selAccApply();
   else if (a === 'selcat') selCatOpen();
+  else if (a === 'catmov') { const id = Number(el.dataset.id); f.catSet = catSubtree(id); f.catName = catPath(id) || ''; f.q = ''; f.more = []; f.nocat = false; f.range = null; f.accset = null; selMode = false; SEL.clear(); go('movimientos', null); }
+  else if (a === 'clrcat') { f.catSet = null; f.catName = ''; render(); }
   else if (a === 'selpay') selPayOpen();
   else if (a === 'selnote') selNoteOpen();
   else if (a === 'selnoteapply') selNoteApply();
