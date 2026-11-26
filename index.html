@@ -1687,41 +1687,177 @@ async function buildVisualPdf(htmlSrc){
     return pdf.output('blob');
   } finally { wrap.remove(); style.remove(); }
 }
-function listBlockHtml(title, txs){
-  const tot = txs.reduce((s, t) => s + t.amount, 0);
-  const rows = txs.slice().sort(byAsc).map(t => `<tr><td style="padding:2px 6px;white-space:nowrap">${esc(fmtDate(t.date))}</td><td style="padding:2px 6px">${esc(t.desc || t.payee || '')}</td><td style="padding:2px 6px">${esc((accMap.get(t.account) || {}).name || '')}</td><td style="padding:2px 6px;text-align:right;white-space:nowrap">${money(t.amount)}</td></tr>`).join('');
-  return `<div class="sec"><span>${esc(title)} · ${txs.length} mov. · ${money(tot)}</span></div><table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>${rows}</tbody></table>`;
+function pdfDoc(){ return new window.jspdf.jsPDF({unit: 'pt', format: 'a4', orientation: 'portrait'}); }
+const PDF_C = {ink: [30, 35, 45], mute: [110, 118, 130], line: [222, 227, 235], accent: [10, 110, 220], band: [232, 240, 252], sub: [246, 248, 251], pos: [20, 130, 80], neg: [190, 45, 45]};
+const LONG_REPORT = 200;
+const ICON_CACHE = {}; let ICON_N = 0;
+// Icono redondo: emoji de la categoría o inicial del nombre (el jsPDF no dibuja emojis directamente)
+function iconPng(ch, name, bg){
+  const emo = !!ch && /\p{Extended_Pictographic}/u.test(ch);
+  const letter = String(name || ch || '?').charAt(0).toUpperCase();
+  const color = emo ? '#eef2f7' : (bg || '#8a94a6');
+  const key = (emo ? ch : letter) + '|' + color;
+  if (!ICON_CACHE[key]) {
+    const c = document.createElement('canvas'); c.width = c.height = 96;
+    const x = c.getContext('2d');
+    x.beginPath(); x.arc(48, 48, 46, 0, Math.PI * 2); x.fillStyle = color; x.fill();
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    if (emo) { x.font = '52px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; x.fillText(ch, 48, 52); }
+    else { x.fillStyle = '#ffffff'; x.font = 'bold 50px Helvetica, Arial, sans-serif'; x.fillText(letter, 48, 52); }
+    ICON_CACHE[key] = {data: c.toDataURL('image/png'), alias: 'ic' + (++ICON_N)};
+  }
+  return ICON_CACHE[key];
 }
-function listPdfHtml(kind){
-  const base = t => !isFuture(t) && t.type !== 'transferencia' && t.type !== 'inversion';
-  let h = `<div class="printonly"><h2 style="margin:8px 12px">${kind === 'cat' ? 'Movimientos por categoría' : 'Movimientos por beneficiario'}</h2></div>`;
-  if (kind === 'cat') {
-    S.categories.slice().sort((a, b) => catPath(a.id).localeCompare(catPath(b.id), 'es')).forEach(c => {
-      const txs = S.transactions.filter(t => base(t) && t.category === c.id);
-      if (txs.length) h += listBlockHtml(catPath(c.id), txs);
+// Documento A4 con cabecera, tablas con líneas y pie con número de página
+function makePdf(title, subtitle){
+  const pdf = pdfDoc();
+  const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+  const M = 36, CW = W - 2 * M, BOTTOM = H - 44;
+  const st = {y: M + 46, cols: null};
+  const clean = s => String(s == null ? '' : s).replace(/[^\x20-\x7E\xA0-\xFF\u20AC\u2013\u2014\u2018\u2019\u201C\u201D]/g, ' ').replace(/\s+/g, ' ').trim();
+  const font = (size, bold, color) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(size); pdf.setTextColor(...(color || PDF_C.ink)); };
+  const fit = (s, w) => { let t = clean(s); if (pdf.getTextWidth(t) <= w) return t; while (t.length > 1 && pdf.getTextWidth(t + '…') > w) t = t.slice(0, -1); return t + '…'; };
+  const tableHead = () => {
+    pdf.setFillColor(...PDF_C.band); pdf.rect(M, st.y, CW, 16, 'F');
+    font(7.5, true, PDF_C.mute);
+    st.cols.forEach(c => pdf.text(clean(c.label), c.right ? M + c.x + c.w - 5 : M + c.x + 5, st.y + 11, {align: c.right ? 'right' : 'left'}));
+    st.y += 18;
+  };
+  const head = () => {
+    font(15, true); pdf.text(fit(title, CW), M, M + 12);
+    font(8.5, false, PDF_C.mute); pdf.text(fit(subtitle, CW), M, M + 26);
+    pdf.setDrawColor(...PDF_C.accent); pdf.setLineWidth(1.4); pdf.line(M, M + 34, W - M, M + 34);
+    st.y = M + 46;
+    if (st.cols) tableHead();
+  };
+  const newPage = () => { pdf.addPage(); head(); };
+  const ensure = h => { if (st.y + h > BOTTOM) newPage(); };
+  const setCols = defs => {
+    ensure(18);
+    let x = 0;
+    st.cols = defs.map(d => { const c = {label: d.label || '', w: d.w, right: !!d.right, x}; x += d.w; return c; });
+    tableHead();
+  };
+  const row = (cells, o) => {
+    o = o || {};
+    const h = o.h || 15, size = o.size || 8.5;
+    ensure(h);
+    if (o.fill) { pdf.setFillColor(...o.fill); pdf.rect(M, st.y, CW, h, 'F'); }
+    st.cols.forEach((c, i) => {
+      const cell = cells[i] == null ? '' : cells[i];
+      const text = typeof cell === 'object' ? cell.t : cell;
+      const color = (typeof cell === 'object' && cell.color) || o.color;
+      let x = M + c.x + 5;
+      if (i === 0 && o.indent) x += o.indent;
+      if (o.icon && i === (o.iconCol || 0)) { pdf.addImage(o.icon.data, 'PNG', x, st.y + (h - 11) / 2, 11, 11, o.icon.alias); x += 15; }
+      font(size, !!o.bold, color);
+      const sub = typeof cell === 'object' ? cell.sub : null;
+      const by = sub ? st.y + h * 0.42 : st.y + h * 0.7;
+      if (c.right) pdf.text(fit(text, c.w - 10), M + c.x + c.w - 5, by, {align: 'right'});
+      else pdf.text(fit(text, M + c.x + c.w - 5 - x), x, by);
+      if (sub) { font(size - 1.5, false, PDF_C.mute); pdf.text(fit(sub, M + c.x + c.w - 5 - x), x, st.y + h * 0.85); }
     });
+    pdf.setDrawColor(...PDF_C.line); pdf.setLineWidth(0.4); pdf.line(M, st.y + h, M + CW, st.y + h);
+    st.y += h;
+  };
+  const band = (text, right, o) => {
+    o = o || {};
+    const h = o.h || 20, size = o.size || 10;
+    ensure(h + 6); st.y += 6;
+    pdf.setFillColor(...(o.fill || PDF_C.band)); pdf.rect(M, st.y, CW, h, 'F');
+    let x = M + 8 + (o.indent || 0);
+    if (o.icon) { pdf.addImage(o.icon.data, 'PNG', x, st.y + (h - 13) / 2, 13, 13, o.icon.alias); x += 18; }
+    font(size, true);
+    pdf.text(fit(text, M + CW - x - 110), x, st.y + h * 0.68);
+    if (right) { const rt = clean(right); font(size, true, /^\s*[-−]/.test(rt) ? PDF_C.neg : PDF_C.ink); pdf.text(rt, M + CW - 8, st.y + h * 0.68, {align: 'right'}); }
+    st.y += h + 2;
+  };
+  const note = text => { ensure(16); font(8.5, false, PDF_C.mute); pdf.text(fit(text, CW), M + 4, st.y + 11); st.y += 16; };
+  const gap = n => { st.y += n || 6; };
+  const finish = () => {
+    const n = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i); font(7.5, false, PDF_C.mute);
+      pdf.text('Mis finanzas', M, H - 22);
+      pdf.text('Página ' + i + ' de ' + n, W - M, H - 22, {align: 'right'});
+    }
+    return pdf.output('blob');
+  };
+  head();
+  return {CW, setCols, row, band, note, gap, finish};
+}
+// Listados de categorías y beneficiarios: solo nombres, con su icono
+async function listPdfExport(kind){
+  try { await ensurePdfLibs(); } catch (e) { alert('No se pudieron cargar las librerías del PDF (¿sin conexión?).'); return; }
+  const cat = kind === 'cat';
+  const api = makePdf(cat ? 'Categorías y subcategorías' : 'Beneficiarios', 'Mis finanzas · ' + fmtDate(todayStr()));
+  api.setCols([{label: cat ? 'Categoría' : 'Beneficiario', w: api.CW}]);
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'es');
+  if (cat) {
+    const walk = (c, d) => {
+      api.row([c.name || '?'], {icon: iconPng(catIconOf(c.id), c.name, colorOf(c.name)), indent: d * 20, bold: d === 0, size: d ? 9 : 10.5, h: d ? 17 : 24, fill: d === 0 ? PDF_C.sub : null});
+      S.categories.filter(k => k.parent === c.id).sort(byName).forEach(k => walk(k, d + 1));
+    };
+    S.categories.filter(c => c.parent == null).sort(byName).forEach(c => walk(c, 0));
   } else {
-    [...new Set(S.transactions.filter(base).map(t => t.payee).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')).forEach(n => {
-      h += listBlockHtml(n, S.transactions.filter(t => base(t) && t.payee === n));
+    payeeNames().map(n => typeof n === 'string' ? n : (n.name || '')).filter(Boolean).forEach(n => {
+      api.row([n], {icon: iconPng((S.payeeIcons || {})[n] || null, n, colorOf(n)), size: 10, h: 20});
     });
   }
-  return h;
+  download(api.finish(), (cat ? 'categorias' : 'beneficiarios') + '-' + stampNow() + '.pdf');
 }
-async function exportListPdf(kind){
-  document.body.style.cursor = 'wait';
-  let blob;
-  try { blob = await buildVisualPdf(listPdfHtml(kind)); }
-  catch (e) { document.body.style.cursor = ''; alert('No se pudo generar el PDF.'); return; }
-  document.body.style.cursor = '';
-  download(blob, (kind === 'cat' ? 'categorias' : 'beneficiarios') + '-' + stampNow() + '.pdf');
+// Informes largos: tabla con fecha, descripción, cuenta·categoría e importe, con iconos y líneas
+function buildDesignedPdf(html){
+  const host = document.createElement('div'); host.innerHTML = html;
+  const txt = el => el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  const pp = host.querySelector('.printonly p');
+  const api = makePdf(reportTitle(), txt(pp) || ('Generado ' + fmtDate(todayStr())));
+  const CW = api.CW;
+  let key = '';
+  const use = defs => { const k = defs.map(d => d.label + d.w).join('|'); if (k !== key) { key = k; api.setCols(defs); } };
+  const txCols = [{label: 'Fecha', w: 62}, {label: 'Descripción', w: CW - 62 - 82}, {label: 'Importe', w: 82, right: true}];
+  host.querySelectorAll('.hero, .sec, .cathead, .subhead, .rr, .empty, .mx tr, .cmpt tr').forEach(el => {
+    if (el.matches('.hero')) { api.gap(2); api.band(txt(el.querySelector('.l')), txt(el.querySelector('.v')), {h: 28, size: 11, fill: PDF_C.band}); return; }
+    if (el.matches('.sec')) {
+      use(txCols);
+      const full = txt(el);
+      const m = full.match(/^(.*?)\s*([-−+]?\s*[\d.]+,\d{2}\s*€)$/);
+      api.band(m ? m[1] : full, m ? m[2] : '', {size: 10});
+      return;
+    }
+    if (el.matches('.cathead')) { use(txCols); const ri = txt(el.querySelector('.ri')); api.band(txt(el.querySelector('.t1')) || txt(el), txt(el.querySelector('.amt')), {size: 9.5, h: 19, fill: PDF_C.sub, icon: ri ? iconPng(ri, ri, '#8a94a6') : null}); return; }
+    if (el.matches('.subhead')) { use(txCols); api.band(txt(el), txt(el.querySelector('.amt')), {size: 8.5, h: 16, indent: 12, fill: PDF_C.sub}); return; }
+    if (el.matches('.rr')) {
+      use(txCols);
+      const at = txt(el.querySelector('.amt')), ri = txt(el.querySelector('.ri'));
+      api.row([
+        {t: txt(el.querySelector('.rd'))},
+        {t: txt(el.querySelector('.t1')), sub: txt(el.querySelector('.t2'))},
+        {t: at, color: /^\s*[-−]/.test(at) ? PDF_C.neg : PDF_C.pos}
+      ], {icon: ri ? iconPng(ri, ri, '#8a94a6') : null, iconCol: 1, size: 8, h: 22});
+      return;
+    }
+    if (el.matches('.empty')) { use(txCols); api.note(txt(el)); return; }
+    if (el.tagName === 'TR') {
+      if (el.querySelector('th')) return;
+      const cells = [...el.children].map(txt);
+      if (!cells.length) return;
+      use(cells.map((_, i) => i === 0 ? {label: '', w: CW * 0.34} : {label: '', w: (CW * 0.66) / (cells.length - 1), right: true}));
+      api.row(cells.map(t => ({t})), {size: 8, h: 14});
+    }
+  });
+  return api.finish();
 }
 async function exportPdf(){
+  const html = viewReports();
+  const rows = (html.match(/class="rr"/g) || []).length;
+  if (rows > LONG_REPORT && !await uiConfirm('Este informe tiene ' + rows + ' apuntes. Para que salga rápido, el PDF usará diseño de tabla con iconos, sin los gráficos de barras. ¿Continuar?', 'PDF de informe largo', 'Generar')) return;
   document.body.style.cursor = 'wait';
   let blob;
-  try { blob = await buildVisualPdf(); }
+  try { await ensurePdfLibs(); blob = rows > LONG_REPORT ? buildDesignedPdf(html) : await buildVisualPdf(html); }
   catch (e) {
     document.body.style.cursor = '';
-    alert('No se pudo generar el PDF (¿sin conexión?). Se abrirá la vista de impresión: elige «Guardar como PDF».');
+    alert('No se pudo generar el PDF. Se abrirá la vista de impresión: elige «Guardar como PDF».');
     window.print();
     return;
   }
@@ -3111,8 +3247,8 @@ function act(a, el){
   else if (a === 'catall') { R.cats.clear(); catRefresh(); }
   else if (a === 'catexp') { RCEXP = new Set(S.categories.filter(c => isTop(c) && descendantsOf(c.id).length).map(c => c.id)); catRefresh(); }
   else if (a === 'catcol') { RCEXP = new Set(); catRefresh(); }
-  else if (a === 'catpdf') exportListPdf('cat');
-  else if (a === 'benpdf') exportListPdf('ben');
+  else if (a === 'catpdf') listPdfExport('cat');
+  else if (a === 'benpdf') listPdfExport('ben');
   else if (a === 'retctx') { const r = RETCTX; RETCTX = null; if (!r) return; f.catSet = null; f.catName = ''; f.payee = null; f.account = null; selMode = false; SEL.clear(); go(r.view); window.scrollTo(0, r.scroll || 0); }
   else if (a === 'benmoves') { if (!BR.who) return; RETCTX = {view: 'beneficiarios', label: 'Beneficiarios', scroll: window.scrollY}; f.payee = BR.who; f.catSet = null; f.catName = ''; f.q = ''; f.more = []; f.nocat = false; f.range = null; f.accset = null; selMode = false; SEL.clear(); go('movimientos', null); }
   else if (a === 'clrpay') { f.payee = null; render(); }
@@ -3310,7 +3446,7 @@ function render(){
   }
   $('#hact').innerHTML = hact;
   const banner = (MIGRATED ? `<div class="banner">Datos actualizados a la versión corregida. Tu copia anterior queda guardada en Ajustes. <button class="btn" data-act="dismiss">Entendido</button></div>` : '') + (storeOK ? '' : `<div class="banner">Este navegador no permite guardar datos aquí. Antes de cerrar, exporta una copia desde Ajustes.</div>`);
-  const body = (view === 'cuentas' || view === 'inicio') && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:8px">Importa tu copia JSON desde Ajustes para empezar en este dispositivo.</div><button class="btn primary" style="margin-top:14px;background:#fff;color:#075fc5" data-act="settings">Abrir Ajustes e importar copia</button></div>` : view === 'inicio' ? viewDash() : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : view === 'beneficiarios' ? viewBeneficiarios() : viewSettings();
+  const body = (view === 'cuentas' || view === 'inicio') && !S.accounts.length ? `<div class="hero"><div class="l">Bienvenido a Finanzas</div><div class="v" style="font-size:22px">Tus datos, bajo tu control</div><div style="margin-top:10px">Esta app guarda todo en este mismo dispositivo. Elige cómo empezar:</div><div style="margin-top:12px"><b>1. Tienes una copia de tus datos</b> (un archivo .json de otro dispositivo): impórtala desde Ajustes.</div><div style="margin-top:6px"><b>2. Empiezas desde cero:</b> crea tu primera cuenta (por ejemplo Efectivo o tu banco) y luego añade tus movimientos con «+ Apunte».</div><div style="margin-top:10px;font-size:13px;opacity:.9">Consejo: exporta una copia desde Ajustes de vez en cuando. Si se borran los datos del navegador, se pierden.</div><div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px"><button class="btn primary" style="background:#fff;color:#075fc5" data-act="settings">Importar una copia (Ajustes)</button><button class="btn" style="background:rgba(255,255,255,.2);color:#fff" data-act="accnew">Empezar desde cero</button></div></div>` : view === 'inicio' ? viewDash() : view === 'cuentas' ? viewAccounts() : view === 'movimientos' ? viewMoves() : view === 'informes' ? viewReports() : view === 'categorias' ? viewCategories() : view === 'beneficiarios' ? viewBeneficiarios() : viewSettings();
   $('#main').innerHTML = banner + body;
 }
 
