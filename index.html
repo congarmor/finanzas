@@ -205,7 +205,7 @@ img{-webkit-user-drag:none;user-drag:none}
     <div class="row" data-act="export-cats-csv"><div class="mid"><div class="t1">CSV de categorías (.csv)</div><div class="t2">Listado completo de categorías y subcategorías.</div></div></div>
   </div>
   <div class="sec"><span>Datos</span></div><div class="card">
-    <div class="row"><div class="mid"><div class="t1">Versión de datos</div><div class="t2">6</div></div></div>
+    <div class="row"><div class="mid"><div class="t1">Versión interna de datos</div><div class="t2">6</div></div></div>
   </div>
   <div class="sec"><span>Inversiones</span></div><div class="card">
     <div class="row" data-act="prices"><div class="mid"><div class="t1">Actualizar precios</div><div class="t2">Consulta la cotización actual en la web</div></div></div>
@@ -739,23 +739,19 @@ function holdingText(x){
 }
 function holdingsOf(accId){ return (S.holdings || []).filter(h => h.account === accId); }
 function diagText(){
-  const acc = S.accounts.find(a => a.name === 'Santander');
-  const L = [];
-  L.push('Hoy en este dispositivo: ' + todayStr());
-  L.push('Versión de datos: ' + S.dataVersion + ' · Movimientos totales: ' + S.transactions.length);
-  if (!acc) return L.concat('No existe la cuenta Santander en este dispositivo.').join('\n');
-  const txs = S.transactions.filter(t => t.account === acc.id);
-  const futuros = txs.filter(t => isFuture(t));
-  L.push('Santander (id ' + acc.id + '): saldo inicial ' + acc.opening + ' · movimientos ' + txs.length + ' · futuros excluidos ' + futuros.length);
-  L.push('Saldo calculado: ' + (Number(acc.opening) + txs.filter(t => !isFuture(t)).reduce((x, t) => x + t.amount, 0)).toFixed(2));
-  L.push('Movimientos desde el 16/11:');
-  txs.filter(t => t.date >= '2026-11-16').forEach(t => L.push('  ' + t.id + ' · ' + t.date + ' · ' + t.amount + ' · ' + t.type + ' · ' + (t.desc || '').slice(0, 30)));
-  [8255, 8256].forEach(id => {
-    const t = S.transactions.find(x => x.id === id);
-    L.push(id + ': ' + (t ? 'existe, cuenta ' + t.account + ', importe ' + t.amount + ', fecha ' + t.date + ', tipo ' + t.type : 'NO EXISTE'));
+  const L = ['Hoy en este dispositivo: ' + todayStr(), 'Versión interna de datos: ' + S.dataVersion + ' · Movimientos totales: ' + S.transactions.length, ''];
+  const b = balances();
+  S.accounts.forEach(a => {
+    const mine = S.transactions.filter(t => t.account === a.id);
+    const futuros = mine.filter(t => isFuture(t));
+    const calc = Number(a.opening || 0) + mine.filter(t => !isFuture(t)).reduce((x, t) => x + t.amount, 0);
+    L.push(a.name + ' (' + (ACC_LABEL[a.type] || a.type) + ')' + (a.archived ? ' · archivada' : ''));
+    L.push('  saldo inicial ' + Number(a.opening || 0).toFixed(2) + ' · movimientos ' + mine.length + ' · futuros excluidos ' + futuros.length);
+    if (a.type === 'inversion') { L.push('  cuenta de inversión: su saldo incluye las posiciones'); L.push(''); return; }
+    const shown = accTotal(a, b);
+    L.push('  saldo calculado ' + calc.toFixed(2) + ' · saldo mostrado ' + shown.toFixed(2) + (Math.abs(calc - shown) > 0.005 ? '  ⚠ no coinciden' : '  ✓'));
+    L.push('');
   });
-  L.push('8255 borrado en este dispositivo: ' + (S.deleted.tx[8255] ? 'sí' : 'no'));
-  L.push('8255 cambiado en este dispositivo: ' + (S.touched.tx[8255] ? 'sí' : 'no'));
   return L.join('\n');
 }
 /* Id único entre dispositivos: marca de tiempo (x1000) que no coincide con ningún id existente. Así se puede apuntar en iMac o iPhone sin que choquen. */
@@ -828,7 +824,7 @@ function benDetailHtml(){
     const acc = accMap.get(t.account);
     return `<div class="rr" data-tx="${t.id}"><span class="rd">${esc(fechaTxt(t.date))}</span><div class="mid"><div class="t1">${esc(t.desc || (t.category ? catLabel(t.category) : TYPE_LABEL[t.type]) || '')}</div><div class="t2">${esc(acc ? acc.name : '')}${t.category ? ' · ' + esc(catLabel(t.category)) : ''}</div></div><div class="amt ${sign(t.amount)}">${money(t.amount)}</div></div>`;
   }).join('');
-  return `<div class="bar"><button class="btn" data-act="benall">‹ Lista</button></div>`
+  return `<div class="bar"><button class="btn" data-act="benall">‹ Lista</button><button class="btn" data-act="benmoves">Ver en Apuntes ›</button></div>`
     + `<div class="hero"><div class="l">${esc(who)}</div><div class="v">${money(-pagado)}</div><div class="l" style="margin-top:8px">${txs.length} movimiento${txs.length === 1 ? '' : 's'}${recibido ? ' · recibido ' + money(recibido) : ''}</div></div>`
     + (lines ? `<div class="card">${lines}</div>` : `<div class="empty">Sin movimientos en este periodo.</div>`);
 }
@@ -1155,7 +1151,7 @@ async function selDelete(){
   SEL.clear(); reindex(); save(); render();
 }
 const SEARCH_FIELDS = {desc:['Descripción','Buscar por descripción (agua, gas…)','search'], amount:['Importe','Ej. 1259,48','decimal'], date:['Fecha','dd/mm/aaaa, mm/aaaa o aaaa-mm-dd','search'], note:['Notas','Buscar en notas…','search'], cat:['Categoría','Buscar por categoría…','search'], acc:['Cuenta','Buscar por cuenta…','search']};
-function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()) || !!f.nocat || !!f.range || !!f.accset || !!f.catSet; }
+function hasMoveSearch(){ return !!String(f.q || '').trim() || (f.more || []).some(m => String(m.q || '').trim()) || !!f.nocat || !!f.range || !!f.accset || !!f.catSet || !!f.payee; }
 function catSubtree(id){ const out = new Set([id]); let added = true; while (added) { added = false; S.categories.forEach(c => { if (c.parent != null && out.has(c.parent) && !out.has(c.id)) { out.add(c.id); added = true; } }); } return out; }
 function catIdsOf(t){ return t.splits ? t.splits.map(s => s.category) : [(t.type === 'reembolso' && txMap.has(t.refundOf)) ? refundCat(t) : t.category]; }
 function moreFiltersHtml(){
@@ -1168,6 +1164,7 @@ function viewMoves(){
   const opts = ordered().map(a => `<option value="${a.id}" ${a.id === f.account ? 'selected' : ''}>${esc(a.name)}${a.archived ? ' (archivada)' : ''}</option>`).join('');
   h += `<select id="accsel" class="field">` + `<option value="">Todas las cuentas</option>` + opts + `</select>`;
   if (isMintosAcc(f.account)) h += `<div style="padding:8px 12px"><button class="btn primary" style="width:100%" data-act="mintos-panel">${mintosPanelOpen ? 'Ocultar panel Mintos' : '🪙 Abrir panel Mintos'}</button></div>${mintosPanelOpen ? mintosView() : ''}`;
+  if (f.payee) h += `<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Beneficiario: ${esc(f.payee)} · ${VIS.length} movimientos</span><button class="btn" data-act="clrpay">Quitar</button></div>`;
   if (f.catSet) h += `<div class="banner" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>Categoría: ${esc(f.catName)} (con subcategorías) · ${VIS.length} movimientos</span><button class="btn" data-act="clrcat">Quitar</button></div>`;
   const sf = SEARCH_FIELDS[f.field] || SEARCH_FIELDS.desc;
   h += `<div class="search-wrap"><select id="qfield" class="qfield" aria-label="Buscar por">${Object.keys(SEARCH_FIELDS).map(k => `<option value="${k}" ${k === f.field ? 'selected' : ''}>${SEARCH_FIELDS[k][0]}</option>`).join('')}</select><input id="q" class="field" type="search" inputmode="${sf[2]}" placeholder="${sf[1]}" value="${esc(f.q)}"><button type="button" class="search-clear" data-clear-search="q" aria-label="Borrar búsqueda" title="Borrar búsqueda">×</button></div>`;
@@ -1197,6 +1194,7 @@ function moveList(){
     list = searchFilter(list, f.q, f.field);
     (f.more || []).forEach(m => { if (String(m.q || '').trim()) list = searchFilter(list, m.q, m.field); });
     if (f.nocat) list = list.filter(isUncat);
+    if (f.payee) list = list.filter(t => t.payee === f.payee);
     if (f.range) list = list.filter(t => t.date >= f.range[0] && t.date <= f.range[1]);
     if (f.accset) list = list.filter(t => f.accset.has(t.account));
     if (f.catSet) list = list.filter(t => catIdsOf(t).some(c => c != null && f.catSet.has(c)));
@@ -1621,7 +1619,7 @@ function emojiToPng(ch){
     return c.toDataURL('image/png');
   } catch (e) { return null; }
 }
-async function buildVisualPdf(){
+async function buildVisualPdf(htmlSrc){
   await ensurePdfLibs();
   const host = document.createElement('div');
   host.id = 'pdfhost';
@@ -1629,7 +1627,7 @@ async function buildVisualPdf(){
   wrap.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;background:#fff;z-index:2147483000;';
   host.style.cssText = 'position:absolute;left:0;top:0;width:800px;background:#fff;color:#000;';
   wrap.appendChild(host);
-  host.innerHTML = viewReports();
+  host.innerHTML = typeof htmlSrc === 'string' ? htmlSrc : viewReports();
   host.querySelectorAll('.noprint').forEach(el => el.remove());
   host.querySelectorAll('.sec').forEach(sec => {
     const nx = sec.nextElementSibling;
@@ -1661,9 +1659,7 @@ async function buildVisualPdf(){
     el.style.background = bg;
   });
   try {
-    const hostW = host.offsetWidth, hostH = host.scrollHeight;
-    const canvas = await window.html2canvas(host, {scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, width: hostW, height: hostH, windowWidth: hostW, windowHeight: hostH});
-    const k = canvas.width / hostW;
+    const hostW = host.offsetWidth, hostH = Math.max(1, host.scrollHeight);
     const top0 = host.getBoundingClientRect().top;
     const rel = el => el.getBoundingClientRect().top - top0;
     const relB = el => el.getBoundingClientRect().bottom - top0;
@@ -1676,25 +1672,48 @@ async function buildVisualPdf(){
     const margin = 40;
     const contentW = pageW - 2 * margin, contentH = pageH - 2 * margin;
     const pagePx = contentH * (hostW / contentW);
-    const totalPx = canvas.height / k;
     let y = 0, first = true;
-    while (y < totalPx - 1) {
-      let end = Math.min(y + pagePx, totalPx);
-      if (end < totalPx) {
-        const fit = cutList.filter(c => c > y + 20 && c <= end);
-        if (fit.length) end = fit[fit.length - 1];
-      }
-      const sy = Math.round(y * k), sh = Math.max(1, Math.round((end - y) * k));
-      const part = document.createElement('canvas');
-      part.width = canvas.width; part.height = sh;
-      part.getContext('2d').drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+    while (y < hostH - 1) {
+      let end = Math.min(y + pagePx, hostH);
+      if (end < hostH) { const fit = cutList.filter(c => c > y + 20 && c <= end); if (fit.length) end = fit[fit.length - 1]; }
+      const h = Math.max(1, end - y);
+      // Cada página se captura por separado: un único lienzo muy alto sale en negro en el navegador
+      const cv = await window.html2canvas(host, {scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, x: 0, y: y, width: hostW, height: h, windowWidth: hostW, windowHeight: hostH});
       if (!first) pdf.addPage();
       first = false;
-      pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, contentW, sh * contentW / canvas.width);
+      pdf.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, contentW, h * contentW / hostW);
       y = end;
     }
     return pdf.output('blob');
   } finally { wrap.remove(); style.remove(); }
+}
+function listBlockHtml(title, txs){
+  const tot = txs.reduce((s, t) => s + t.amount, 0);
+  const rows = txs.slice().sort(byAsc).map(t => `<tr><td style="padding:2px 6px;white-space:nowrap">${esc(fmtDate(t.date))}</td><td style="padding:2px 6px">${esc(t.desc || t.payee || '')}</td><td style="padding:2px 6px">${esc((accMap.get(t.account) || {}).name || '')}</td><td style="padding:2px 6px;text-align:right;white-space:nowrap">${money(t.amount)}</td></tr>`).join('');
+  return `<div class="sec"><span>${esc(title)} · ${txs.length} mov. · ${money(tot)}</span></div><table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>${rows}</tbody></table>`;
+}
+function listPdfHtml(kind){
+  const base = t => !isFuture(t) && t.type !== 'transferencia' && t.type !== 'inversion';
+  let h = `<div class="printonly"><h2 style="margin:8px 12px">${kind === 'cat' ? 'Movimientos por categoría' : 'Movimientos por beneficiario'}</h2></div>`;
+  if (kind === 'cat') {
+    S.categories.slice().sort((a, b) => catPath(a.id).localeCompare(catPath(b.id), 'es')).forEach(c => {
+      const txs = S.transactions.filter(t => base(t) && t.category === c.id);
+      if (txs.length) h += listBlockHtml(catPath(c.id), txs);
+    });
+  } else {
+    [...new Set(S.transactions.filter(base).map(t => t.payee).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')).forEach(n => {
+      h += listBlockHtml(n, S.transactions.filter(t => base(t) && t.payee === n));
+    });
+  }
+  return h;
+}
+async function exportListPdf(kind){
+  document.body.style.cursor = 'wait';
+  let blob;
+  try { blob = await buildVisualPdf(listPdfHtml(kind)); }
+  catch (e) { document.body.style.cursor = ''; alert('No se pudo generar el PDF.'); return; }
+  document.body.style.cursor = '';
+  download(blob, (kind === 'cat' ? 'categorias' : 'beneficiarios') + '-' + stampNow() + '.pdf');
 }
 async function exportPdf(){
   document.body.style.cursor = 'wait';
@@ -1718,7 +1737,9 @@ function catPickInner(){
   const allKidsOf = id => descendantsOf(id).map(x => catMap.get(x)).filter(Boolean).sort((a,b) => catPath(a.id).localeCompare(catPath(b.id),'es'));
   const hit = c => !q || nrm(catPath(c.id)).includes(q);
   const tops = S.categories.filter(isTop).sort(byName);
-  let h = '<div class="rc-grid">';
+  const pick = [...R.cats].filter(id => ancestorInCats(id) == null);
+  const chips = pick.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 12px 10px"><span class="t2" style="width:100%">Elegidas (toca ✕ para quitar):</span>${pick.map(id => `<button class="btn" data-rc="${id}" style="padding:4px 10px">${esc(catPath(id))} ✕</button>`).join('')}</div>` : '';
+  let h = chips + '<div class="rc-grid">';
   let shown = 0;
   tops.forEach(c => {
     const subs = allKidsOf(c.id);
@@ -1884,7 +1905,7 @@ function viewSettings(){
     <div class="row" data-act="export-cats-csv"><div class="mid"><div class="t1">CSV de categorías (.csv)</div><div class="t2">Listado completo de categorías y subcategorías.</div></div></div>
   </div>
   <div class="sec"><span>Datos</span></div><div class="card">
-    <div class="row"><div class="mid"><div class="t1">Versión de datos</div><div class="t2">${DATA_VERSION}</div></div></div>
+    <div class="row"><div class="mid"><div class="t1">Versión interna de datos</div><div class="t2">${DATA_VERSION}</div></div></div>
   </div>
   <div class="sec"><span>Inversiones</span></div><div class="card">
     <div class="row" data-act="prices"><div class="mid"><div class="t1">Actualizar precios</div><div class="t2">Consulta la cotización actual en la web</div></div></div>
@@ -2614,7 +2635,7 @@ function cutTx(t){
   return {...t, splits: kept, amount: kept.reduce((s, x) => s + x.amount, 0)};
 }
 function catPickList(){
-  return `<div class="bar" style="justify-content:space-between;align-items:center"><button class="btn" data-act="catall">Todas</button><span class="t2" id="rccount">${catCountText()}</span><span></span></div>` +
+  return `<div class="bar" style="justify-content:space-between;align-items:center"><button class="btn" data-act="catsel">Seleccionar todas</button><button class="btn" data-act="catall">Borrar selección</button><button class="btn" data-act="catexp">Expandir</button><button class="btn" data-act="catcol">Contraer</button><span class="t2" id="rccount">${catCountText()}</span><span></span></div>` +
     `<input id="rcq" class="field" type="search" placeholder="Buscar categoría…" value="${esc(RCQ)}" autocomplete="off" autocapitalize="off" style="margin:0 12px 8px;width:calc(100% - 24px)">` +
     `<div class="t2" style="margin:0 16px 8px">Al elegir una categoría principal se incluyen también sus subcategorías. Toca «Subcategorías» para elegir solo alguna.</div>` +
     `<div id="rclist">${catPickInner()}</div>`;
@@ -2980,12 +3001,20 @@ function exportCategoriesXlsx(){xlsxWorkbook([{name:'Categorías',rows:categoryR
 function exportCategoriesCsv(){download(new Blob([csvText(categoryRows())],{type:'text/csv;charset=utf-8'}),'mis-finanzas-categorias-'+stampNow()+'.csv');}
 
 /* ---------- Navegación y render ---------- */
-function go(v, acc){
+let RETCTX = null;
+const SNAP = {};
+const TAB_OF = v => (v === 'movimientos' ? 'cuentas' : v === 'categorias' ? 'ajustes' : v);
+function go(v, acc, fromTab){
+  const cur = view;
+  if (cur !== v) SNAP[TAB_OF(cur)] = {view: cur, account: f.account, scroll: window.scrollY};
+  let snap = null;
+  if (fromTab && cur !== v && SNAP[TAB_OF(v)]) { snap = SNAP[TAB_OF(v)]; v = snap.view; acc = snap.account; }
+  if (RETCTX && v !== 'movimientos' && v !== RETCTX.view) RETCTX = null;
   view = v; if (v !== 'cuentas') reorder = false;
   if (v !== 'movimientos') { selMode = false; SEL.clear(); }
   if (v === 'movimientos') f.account = (acc === undefined ? null : acc);
   render();
-  window.scrollTo(0,0);
+  window.scrollTo(0, snap ? snap.scroll : 0);
 }
 function act(a, el){
   if (a === 'mintos-save') saveMintosSnapshot();
@@ -3044,7 +3073,7 @@ function act(a, el){
   else if (a === 'selacc') selAccOpen();
   else if (a === 'selaccapply') selAccApply();
   else if (a === 'selcat') selCatOpen();
-  else if (a === 'catmov') { const id = Number(el.dataset.id); f.catSet = catSubtree(id); f.catName = catPath(id) || ''; f.q = ''; f.more = []; f.nocat = false; f.range = null; f.accset = null; selMode = false; SEL.clear(); go('movimientos', null); }
+  else if (a === 'catmov') { const id = Number(el.dataset.id); RETCTX = {view: 'categorias', label: 'Categorías', scroll: window.scrollY}; f.payee = null; f.catSet = catSubtree(id); f.catName = catPath(id) || ''; f.q = ''; f.more = []; f.nocat = false; f.range = null; f.accset = null; selMode = false; SEL.clear(); go('movimientos', null); }
   else if (a === 'clrcat') { f.catSet = null; f.catName = ''; render(); }
   else if (a === 'selpay') selPayOpen();
   else if (a === 'selnote') selNoteOpen();
@@ -3078,7 +3107,16 @@ function act(a, el){
   else if (a === 'sync-out') syncOut();
   else if (a === 'sync-reconn') syncReconn();
   else if (a === 'catpick') catPickOpen();
+  else if (a === 'catsel') { R.cats.clear(); S.categories.filter(isTop).forEach(c => R.cats.add(c.id)); catRefresh(); }
   else if (a === 'catall') { R.cats.clear(); catRefresh(); }
+  else if (a === 'catexp') { RCEXP = new Set(S.categories.filter(c => isTop(c) && descendantsOf(c.id).length).map(c => c.id)); catRefresh(); }
+  else if (a === 'catcol') { RCEXP = new Set(); catRefresh(); }
+  else if (a === 'catpdf') exportListPdf('cat');
+  else if (a === 'benpdf') exportListPdf('ben');
+  else if (a === 'retctx') { const r = RETCTX; RETCTX = null; if (!r) return; f.catSet = null; f.catName = ''; f.payee = null; f.account = null; selMode = false; SEL.clear(); go(r.view); window.scrollTo(0, r.scroll || 0); }
+  else if (a === 'benmoves') { if (!BR.who) return; RETCTX = {view: 'beneficiarios', label: 'Beneficiarios', scroll: window.scrollY}; f.payee = BR.who; f.catSet = null; f.catName = ''; f.q = ''; f.more = []; f.nocat = false; f.range = null; f.accset = null; selMode = false; SEL.clear(); go('movimientos', null); }
+  else if (a === 'clrpay') { f.payee = null; render(); }
+  else if (a === 'top') { const ov = document.getElementById('ov'), sh = document.getElementById('sheet'); if (ov && ov.classList.contains('on')) { ov.scrollTop = 0; if (sh) sh.scrollTop = 0; } else window.scrollTo({top: 0, behavior: 'smooth'}); }
   else if (a === 'repsave') saveReportAs();
   else if (a === 'repsaved') openSavedReports();
   else if (a === 'accall') { R.excl.clear(); repAccRefresh(); }
@@ -3259,15 +3297,16 @@ function render(){
   $('#title').textContent = title;
   let hact = '';
   if (view === 'movimientos') {
+    if (RETCTX) hact += `<button class="btn" data-act="retctx">‹ ${esc(RETCTX.label)}</button>`;
     if (f.account) hact += `<button class="btn" data-act="back">‹ Cuentas</button><button class="btn" data-act="accedit">Editar</button>`;
     if (isMintosAcc(f.account)) hact += `<button class="btn" data-act="mintos-panel">${mintosPanelOpen ? 'Panel ✓' : '🪙 Panel'}</button>`;
     hact += `<button class="btn" data-act="selmode">${selMode ? 'Listo' : 'Seleccionar'}</button><button class="btn primary" data-act="new">+ Apunte</button>`;
   } else if (view === 'cuentas') {
     hact = `<button class="btn" data-act="grpnew">+ Grupo</button><button class="btn" data-act="reorder">${reorder ? 'Listo' : 'Ordenar'}</button><button class="btn primary" data-act="accnew">+ Cuenta</button>`;
   } else if (view === 'beneficiarios') {
-    hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn primary" data-act="bennew">+ Beneficiario</button>`;
+    hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn" data-act="benpdf">PDF</button><button class="btn primary" data-act="bennew">+ Beneficiario</button>`;
   } else if (view === 'categorias') {
-    hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn primary" data-act="catnew">+ Categoría</button>`;
+    hact = `<button class="btn" data-act="settings">‹ Ajustes</button><button class="btn" data-act="catpdf">PDF</button><button class="btn primary" data-act="catnew">+ Categoría</button>`;
   }
   $('#hact').innerHTML = hact;
   const banner = (MIGRATED ? `<div class="banner">Datos actualizados a la versión corregida. Tu copia anterior queda guardada en Ajustes. <button class="btn" data-act="dismiss">Entendido</button></div>` : '') + (storeOK ? '' : `<div class="banner">Este navegador no permite guardar datos aquí. Antes de cerrar, exporta una copia desde Ajustes.</div>`);
@@ -3363,14 +3402,14 @@ document.addEventListener('click', e => {
   const rp = t.closest('[data-repdel]'); if (rp) { deleteReport(Number(rp.dataset.repdel)); return; }
   const rq = t.closest('[data-rep]'); if (rq) { applyReport(Number(rq.dataset.rep)); return; }
   const rex = t.closest('[data-rexp]'); if (rex) { const id = Number(rex.dataset.rexp); if (RCEXP.has(id)) RCEXP.delete(id); else RCEXP.add(id); const l = document.getElementById('rclist'); if (l) l.innerHTML = catPickInner(); return; }
-  const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); return; }
+  const rc = t.closest('[data-rc]'); if (rc) { toggleRepCat(Number(rc.dataset.rc)); catRefresh(); return; }
   const k = t.closest('#kind button'); if (k) { FK = k.dataset.k; formUI(); return; }
   const bo = t.closest('[data-benopen]'); if (bo) { benPickOpen((document.getElementById('f_pay') || {}).value || null); return; }
   const bk = t.closest('[data-bpk]'); if (bk) { benPickSet(bk.dataset.bpk); return; }
   const bn = t.closest('[data-bpnew]'); if (bn) { benPickSet((document.getElementById('bp_q') || {}).value || ''); return; }
   const bp = t.closest('[data-bpick]'); if (bp) { BR.who = bp.dataset.bpick; BQ = ''; render(); window.scrollTo(0,0); return; }
   const be = t.closest('[data-bedit]'); if (be) { benEditSheet(be.dataset.bedit); return; }
-  const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab); return; }
+  const tab = t.closest('[data-tab]'); if (tab) { go(tab.dataset.tab, undefined, true); return; }
   const mo = t.closest('[data-mo]'); if (mo) { f.month = shiftMonth(f.month, Number(mo.dataset.mo)); render(); return; }
   const ac = t.closest('[data-act]'); if (ac) { if (ac.dataset.act === 'duplicate') { const id = FID; if (id != null) openForm(id, true); return; } act(ac.dataset.act, ac); return; }
   const gl = t.closest('[data-go]'); if (gl) { go(gl.dataset.go, Number(gl.dataset.acc)); return; }
@@ -3585,10 +3624,9 @@ function isUncat(t){
   return none(t.category);
 }
 /* ---------- Buscar traspasos entre mis cuentas guardados como gasto + ingreso ---------- */
-let TP = null;
+let TP = null, TPWIN = 7, TPCAT = false;
 function tpFind(){
-  const [from, to] = f.range || ['0000-01-01', '9999-12-31'];
-  const ok = t => (t.type === 'gasto' || t.type === 'ingreso') && !t.splits && t.refundOf == null && refundsOf(t.id).length === 0 && isUncat(t) && t.date >= from && t.date <= to && Math.abs(t.amount) > 0.004;
+  const ok = t => (t.type === 'gasto' || t.type === 'ingreso') && !t.splits && t.refundOf == null && refundsOf(t.id).length === 0 && (TPCAT || isUncat(t)) && Math.abs(t.amount) > 0.004;
   const c = S.transactions.filter(ok);
   const neg = c.filter(t => t.amount < 0), pos = c.filter(t => t.amount > 0);
   const day = d => Math.round(new Date(d + 'T00:00:00').getTime() / 864e5);
@@ -3596,7 +3634,7 @@ function tpFind(){
   neg.forEach(n => pos.forEach(p => {
     if (p.account === n.account || Math.abs(n.amount + p.amount) > 0.005) return;
     const d = Math.abs(day(n.date) - day(p.date));
-    if (d <= 7) cand.push({n, p, d});
+    if (d <= TPWIN) cand.push({n, p, d});
   }));
   cand.sort((a, b) => a.d - b.d || a.n.id - b.n.id);
   const usedN = new Set(), usedP = new Set(), out = [];
@@ -3609,18 +3647,39 @@ function tpFind(){
   return out;
 }
 function tpOpen(){ TP = tpFind(); tpRender(); $('#ov').classList.add('on'); }
+document.addEventListener('change', e => {
+  if (e.target.id === 'tpwin') { TPWIN = Number(e.target.value); TP = tpFind(); tpRender(); }
+  else if (e.target.id === 'tpcat') { TPCAT = e.target.checked; TP = tpFind(); tpRender(); }
+});
+// Botón «↑ Inicio» en la pantalla principal y dentro de las ventanas
+(function(){
+  const mk = (id, pos) => { const b = document.createElement('button'); b.id = id; b.className = 'btn primary noprint'; b.setAttribute('data-act', 'top'); b.textContent = '↑ Inicio'; b.style.cssText = 'position:fixed;right:14px;z-index:70;display:none;border-radius:20px;padding:8px 14px;box-shadow:0 2px 8px rgba(0,0,0,.25);' + pos; return b; };
+  const bMain = mk('totop', 'bottom:86px'), bSheet = mk('totop2', 'bottom:14px');
+  const add = () => { document.body.appendChild(bMain); const ov = document.getElementById('ov'); if (ov) ov.appendChild(bSheet); };
+  if (document.body) add(); else document.addEventListener('DOMContentLoaded', add);
+  const upd = () => {
+    const ov = document.getElementById('ov'), sh = document.getElementById('sheet');
+    const open = !!(ov && ov.classList.contains('on'));
+    const sc = open ? Math.max(sh ? sh.scrollTop : 0, ov.scrollTop) : 0;
+    bSheet.style.display = open && sc > 300 ? 'block' : 'none';
+    bMain.style.display = !open && window.scrollY > 400 ? 'block' : 'none';
+  };
+  window.addEventListener('scroll', upd, {passive: true});
+  document.addEventListener('scroll', upd, true);
+  document.addEventListener('click', () => setTimeout(upd, 60), true);
+})();
 function tpRender(){
   const sel = TP.filter(x => x.on);
   const sum = sel.reduce((s, x) => s + Math.abs(x.neg.amount), 0);
   const rows = TP.map((x, i) => {
     const a = accMap.get(x.neg.account), b = accMap.get(x.pos.account), d = x.neg.desc || x.pos.desc || '';
-    return `<div class="row" data-tp="${i}"><span class="chk ${x.on ? 'on' : ''}">✓</span><div class="mid"><div class="t1">${money(Math.abs(x.neg.amount))} · ${esc(fmtDate(x.neg.date))}${x.neg.date !== x.pos.date ? ' → ' + esc(fmtDate(x.pos.date)) : ''}</div><div class="t2">${esc(a ? a.name : '?')} → ${esc(b ? b.name : '?')}${d ? ' · ' + esc(d) : ''}</div></div></div>`;
+    return `<div class="row" data-tp="${i}"><span class="chk ${x.on ? 'on' : ''}">✓</span><div class="mid"><div class="t1">${money(Math.abs(x.neg.amount))} · ${esc(fmtDate(x.neg.date))}${x.neg.date !== x.pos.date ? ' → ' + esc(fmtDate(x.pos.date)) : ''}</div><div class="t2">${esc(a ? a.name : '?')} → ${esc(b ? b.name : '?')}${d ? ' · ' + esc(d) + ' días' : ''}${(x.neg.category != null || x.pos.category != null) ? ' · ⚠ tiene categoría' : ''}</div></div></div>`;
   }).join('');
   $('#sheet').innerHTML = `<div class="hd"><button class="btn" data-act="cancel">Cancelar</button><strong>Traspasos detectados</strong><button class="btn primary" data-act="tpapply" ${sel.length ? '' : 'disabled'}>Convertir</button></div>` +
     (TP.length
       ? `<div class="bar" style="justify-content:space-between"><button class="btn" data-act="tpall">Todos</button><span class="t2">${sel.length} de ${TP.length} · ${money(sum)}</span><button class="btn" data-act="tpnone">Ninguno</button></div><div class="card" style="margin:0 12px 12px">${rows}</div>`
       : `<div class="empty">No he encontrado parejas de apuntes sin categoría con el mismo importe y signo contrario en cuentas distintas.</div>`) +
-    `<div class="empty">Busca un gasto y un ingreso sin categoría del mismo importe, en cuentas distintas y con hasta 7 días de diferencia${f.range ? ' (dentro del periodo filtrado)' : ''}. Desmarca los que no sean traspasos. Al convertir, dejan de contar como ingreso y gasto. Puedes deshacerlo en Ajustes → «Volver a la copia anterior».</div><div style="height:28px"></div>`;
+    `<div class="empty">Busca un gasto y un ingreso del mismo importe, en cuentas distintas, con hasta <select id="tpwin" class="field" style="width:auto;display:inline-block;margin:0 4px;padding:2px 6px">${[7, 30, 90, 365, 100000].map(n => `<option value="${n}" ${TPWIN === n ? 'selected' : ''}>${n === 100000 ? 'sin límite' : n + ' días'}</option>`).join('')}</select> de diferencia, en todo el historial. <label class="filter-toggle"><input type="checkbox" id="tpcat" ${TPCAT ? 'checked' : ''}> Incluir apuntes que ya tienen categoría</label>. Desmarca los que no sean traspasos. Al convertir, dejan de contar como ingreso y gasto. Puedes deshacerlo en Ajustes → «Volver a la copia anterior».</div><div style="height:28px"></div>`;
 }
 async function tpApply(){
   const sel = TP.filter(x => x.on);
